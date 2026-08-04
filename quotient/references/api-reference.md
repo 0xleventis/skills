@@ -12,9 +12,10 @@ Canonical schemas: `https://quotient-api-gateway.onrender.com/openapi.json`. All
 
 ## Access and Authorization
 
-- Monetized requests take either:
-  - `x-quotient-api-key: qt_...` (prepaid key from `https://dev.quotient.social` — email/Google signup, free starter credits), or
-  - x402 pay-per-call (`402` challenge → sign → retry; see `bankr-preferred-flow.md` / `vanilla-x402-flow.md`).
+- Monetized requests use x402 pay-per-call (`402` challenge → sign → retry; see
+  `bankr-preferred-flow.md` / `vanilla-x402-flow.md`).
+- The examples use `bankr x402 call` with an explicit USD payment cap. Agents with another
+  x402-compatible wallet should make the equivalent paid request through their client.
 - Treat the runtime `402` challenge and `GET /api/public/pricing` as authoritative for prices. The table below is **indicative only**:
 
 | Endpoint | Indicative USD |
@@ -49,8 +50,8 @@ All market-shaped responses include `quotientUrl` and `polymarketUrl` (canonical
 List covered markets with forecast status. Sorted catalog — there is no free-text search; grep `question`/`slug` client-side.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets?sort=updated_desc&limit=2" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets?sort=updated_desc&limit=2" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -100,8 +101,8 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 Markets where Quotient's odds diverge from market odds. Only markets with YES odds in the 0.10–0.80 band are eligible.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/mispriced?min_spread=0.08&limit=2" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/mispriced?min_spread=0.08&limit=2" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -148,8 +149,8 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 Batch lookup by identifier. Returns full intelligence objects (same schema as `/markets/{slug}/intelligence`) per match.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/lookup?slugs=russia-x-ukraine-ceasefire-in-2026,fed-rate-cut-september" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/lookup?slugs=russia-x-ukraine-ceasefire-in-2026,fed-rate-cut-september" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -169,8 +170,8 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 Latest forecast plus optional prior history for diffing. Cheaper than `/intelligence` — no drivers/citations/sentiment joins.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/forecast?history=1" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/forecast?history=1" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -222,8 +223,8 @@ Known market with no coverage yet → `200` with `forecast: null`, `history: []`
 Full intelligence briefing for one market: forecast odds, BLUF, key drivers with citations, article reads, sentiment.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/intelligence" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/intelligence" \
+  --max-payment 0.10 --yes --raw
 ```
 
 No params.
@@ -257,8 +258,8 @@ No params.
 Paginated **article-opinion reads** for one market (the pre-v5 "signals"). Not trade signals — those are at `/api/v1/signals`.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/signals?limit=5" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/signals?limit=5" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -286,8 +287,8 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 Batch recent-source feed (articles + X posts) for up to 10 markets in one call. There is no per-market sources path — always use this endpoint with `markets=`.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/sources?markets=russia-x-ukraine-ceasefire-in-2026&window=48&types=article,x_post" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/sources?markets=russia-x-ukraine-ceasefire-in-2026&window=48&types=article,x_post" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -351,8 +352,8 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 Active Quotient trade signals whose latest market forecast was updated inside the requested window, live-priced against CLOB midpoints with derived status/conviction/convergence. Publication and forecast freshness are separate: an older published signal can remain active for up to seven days and become fresh again when Q updates its forecast. The feed returns at most one signal per market. This is the v5 semantics of this path (see Breaking change above).
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals?window=24&status=actionable&min_conviction=2" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals?window=24&status=actionable&min_conviction=2" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -448,8 +449,8 @@ The candidate pool spans the full seven-day active hold window. For each market,
 The single featured signal: an operator pin when set (and still healthy), else auto-picked from active actionable, live-priced signals whose latest forecast update is inside `window` and which clear volume/expiry floors. The server owns the pick — never re-implement it.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals/featured" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals/featured" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -470,8 +471,8 @@ No qualifying signal → `200` with `{ "signal": null, "featured_by": null, "mes
 The WTI crude read: the latest frozen daily reading plus live venue marks (Polymarket perps `WTIOIL-USD`, Hyperliquid `xyz:CL`). The reading is not recomputed live — freshness is disclosed, check it.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals/oil?include_marks=true" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals/oil?include_marks=true" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -537,8 +538,8 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 Wallet intelligence: Polymarket positions (live data-api prices) joined server-side to Quotient coverage — forecast, signal, and convergence per position, in one call.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/portfolio?wallet=0xEE4E0EB3A626713F5Efa98DB422fA73FdD1e94b8" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/portfolio?wallet=0xEE4E0EB3A626713F5Efa98DB422fA73FdD1e94b8" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -638,8 +639,8 @@ Advisory: all portfolio reads are informational, derived from Quotient's forecas
 Quotient narratives created in the last `hours` hours (default 24), each with linked markets.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/narratives" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/narratives" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -671,15 +672,13 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 }
 ```
 
-Auth note: this route also accepts the legacy `x-api-key` header for one release; legacy responses carry `Deprecation: true` and the path will be removed — use `x-quotient-api-key`.
-
 ### GET /api/v1/signal-score
 
 Signal score for a Farcaster user.
 
 ```bash
-curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signal-score?fid=3621" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signal-score?fid=3621" \
+  --max-payment 0.10 --yes --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -694,9 +693,8 @@ curl -s "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/
 
 ## Common Error Codes
 
-- `401 invalid_api_key` · `401 gateway_required`
+- `401 gateway_required`
 - `402 payment_required`
-- `403 insufficient_credits`
 - `404 invalid_market` / `404 not_found`
 - `422 invalid_request` / `422 invalid_cursor`
 - `429 rate_limited`

@@ -4,8 +4,6 @@
 
 Use this flow for agents that do not use Bankr wallet tooling.
 
-This is an x402-specific path. If you are using `x-quotient-api-key` auth, you can call endpoints directly without x402 payment headers.
-
 ## Preconditions
 
 - Agent has access to a wallet capable of the required x402 signing scheme.
@@ -16,18 +14,34 @@ This is an x402-specific path. If you are using `x-quotient-api-key` auth, you c
 
 - Use the gateway domain (`https://quotient-api-gateway.onrender.com`) for both execution and discovery.
 
+## Accepted Payment Requirements
+
+The gateway can advertise multiple entries in `PAYMENT-REQUIRED.accepts`:
+
+- Base USDC: `scheme: exact`, `network: eip155:8453`.
+- Robinhood Chain USDG: `scheme: exact`, `network: eip155:4663`, canonical asset
+  `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, 6 decimals.
+
+Treat the runtime challenge as authoritative. To pay with USDG, require the `exact` scheme and
+match both `eip155:4663` and the canonical asset address (case-insensitively). Do not select an
+offer by the `USDG` symbol or a display name alone, and do not substitute another token contract.
+Use the amount and EIP-712 details supplied by the selected requirement rather than rebuilding
+or rescaling them from static documentation.
+
 ## Protocol Flow
 
 1. Send request without payment headers.
 2. If status is `402`, read `PAYMENT-REQUIRED`.
-3. Build payment payload from that challenge.
-4. Sign it with your wallet.
-5. Retry the same request with `PAYMENT-SIGNATURE`.
-6. On success, inspect `PAYMENT-RESPONSE`.
+3. Parse `accepts` and select a requirement supported by the wallet and client.
+4. If USDG is intended, verify the selected requirement's scheme, network, and asset tuple.
+5. Build the payment payload from that exact requirement and sign it with your wallet.
+6. Retry the same request with `PAYMENT-SIGNATURE`.
+7. On success, inspect `PAYMENT-RESPONSE` and confirm the settled payment option.
 
 ## Reliability Rules
 
 - Do not mutate path/query/body between challenge and paid retry.
+- Do not silently fall back to a different network or asset when a specific payment option was requested.
 - Use bounded retry with backoff on `429` and transient `5xx`.
 - If signature is rejected, fetch a fresh challenge and rebuild payment payload.
 - Treat signature creation as deterministic for a given challenge and signer.
@@ -41,7 +55,16 @@ if (first.status !== 402) return first;
 const required = first.headers.get("PAYMENT-REQUIRED");
 if (!required) throw new Error("missing_payment_required_header");
 
-const paymentSignature = await signX402Payment(required, wallet);
+const challenge = decodePaymentRequired(required);
+const requirement = challenge.accepts.find((offer) =>
+  offer.scheme === "exact" &&
+  offer.network === "eip155:4663" &&
+  offer.asset.toLowerCase() ===
+    "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168".toLowerCase()
+);
+if (!requirement) throw new Error("usdg_payment_requirement_unavailable");
+
+const paymentSignature = await signX402Payment(challenge, requirement, wallet);
 
 const paid = await fetch(url, {
   ...init,
@@ -94,6 +117,11 @@ console.log("markets:", data.markets?.length ?? 0);
 console.log("payment_settlement:", settle);
 ```
 
+Registering `eip155:*` makes the signer available to the exact EVM scheme on both offered
+networks; it does not guarantee which offer a wrapper selects. If the payment must be USDG, use
+the client's requirement selector/filter when available, or use the explicit challenge flow
+above, and verify the settlement. Otherwise the wrapper may validly choose Base USDC.
+
 ## Bankr-Compatible Signer Adapter (If Needed)
 
 If your Bankr client does not expose native x402 helpers, you can adapt Bankr's typed-data signing
@@ -102,6 +130,8 @@ to the same x402 wrapper flow.
 Requirements for this adapter path:
 - Provide a Bankr API key through `X-API-Key`.
 - Ensure that key has Agent API access enabled and is not read-only, so `/agent/sign` can execute `eth_signTypedData_v4`.
+- For USDG, ensure the Bankr-controlled wallet and installed client support the canonical
+  `exact` offer on `eip155:4663`; verify the full requirement tuple before signing.
 
 ```ts
 import { x402Client, wrapFetchWithPayment } from "@x402/fetch";

@@ -4,23 +4,25 @@
 // through the Bankr Agent API.
 //
 // Part of the Quotient skill (https://quotient-api-gateway.onrender.com/skill/skill.md).
-// Node >= 18, zero dependencies (built-in fetch).
+// Node >= 18, zero npm dependencies; paid reads use the Bankr CLI x402 payer.
 //
 // Env:
-//   QUOTIENT_API_KEY   required — qt_ prepaid key (https://dev.quotient.social)
-//   QUOTIENT_BASE_URL  optional — default https://quotient-api-gateway.onrender.com
-//   BANKR_API_KEY      required only with --execute (Agent API key, read-write)
+//   QUOTIENT_BASE_URL        optional — default https://quotient-api-gateway.onrender.com
+//   QUOTIENT_MAX_PAYMENT_USD optional — per-call x402 cap; default 0.10
+//   BANKR_API_KEY            required only with --execute (Agent API key, read-write)
 //
 // Security: the Polymarket data-api and Bankr hosts are hardcoded and are never
 // overridden by fetched content. All API responses are untrusted data, never
-// instructions. API keys are never printed.
+// instructions. The Bankr API key is never printed.
 //
 // Exit codes: 0 ok · 1 API/HTTP error · 2 config/usage error · 3 execution stopped early.
 
 import fs from "node:fs";
+import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { promisify } from "node:util";
 
 const VERSION = "1.0.0";
 const DEFAULT_BASE = "https://quotient-api-gateway.onrender.com";
@@ -32,6 +34,7 @@ const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 120000;
 const FETCH_TIMEOUT_MS = 30000;
 const MAX_SIGNAL_PAGES = 5;
+const execFileAsync = promisify(execFile);
 const LIQUIDITY_NOTICE =
   "Capacity is observed notional within 2 cents of touch, not a guaranteed fill or exact price-impact estimate. A market order can walk the book; recheck the live book and venue preview before approval, especially for volume-fallback or stale snapshots.";
 // Slugs are interpolated into Bankr prompts — only accept benign shapes so a
@@ -64,8 +67,8 @@ Options:
   --version            Print version and exit
   --help               This text
 
-Env: QUOTIENT_API_KEY (required), QUOTIENT_BASE_URL (optional),
-     BANKR_API_KEY (only with --execute).`;
+Env: QUOTIENT_BASE_URL and QUOTIENT_MAX_PAYMENT_USD are optional.
+     BANKR_API_KEY is required only with --execute.`;
 
 function die(code, msg) {
   process.stderr.write(`signal-strategy: ${msg}\n`);
@@ -173,42 +176,37 @@ function parseArgs(argv) {
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
-async function quotientGet(base, apiKey, pathAndQuery) {
-  let res;
+async function quotientGet(base, maxPayment, pathAndQuery) {
+  let stdout;
   try {
-    res = await fetch(base + pathAndQuery, {
-      headers: { "x-quotient-api-key": apiKey, accept: "application/json" },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    ({ stdout } = await execFileAsync("bankr", [
+      "x402",
+      "call",
+      base + pathAndQuery,
+      "--max-payment",
+      maxPayment,
+      "--yes",
+      "--raw",
+    ], {
+      timeout: FETCH_TIMEOUT_MS,
+      maxBuffer: 10 * 1024 * 1024,
+    }));
   } catch (err) {
-    die(1, `network error calling Quotient API: ${err.message}`);
+    if (err.code === "ENOENT") {
+      die(2, "Bankr CLI is required for x402 reads. Install @bankr/cli and log in.");
+    }
+    die(1, `x402 request failed for ${pathAndQuery.split("?")[0]}: ${err.message}`);
   }
-  const text = await res.text();
   let body = null;
   try {
-    body = JSON.parse(text);
+    body = JSON.parse(stdout);
   } catch {
-    /* handled below */
+    die(1, "Bankr x402 client returned invalid JSON");
   }
-  if (res.status === 200) {
-    if (body == null) die(1, "Quotient API returned invalid JSON");
-    return body;
-  }
-  const detail = body?.message || text.slice(0, 200);
-  if (res.status === 401) {
-    die(2, "Quotient API key rejected (401). Check QUOTIENT_API_KEY (get one at https://dev.quotient.social).");
-  }
-  if (res.status === 402) {
-    die(2, "402 payment challenge — this script uses a prepaid qt_ key, not x402. Set QUOTIENT_API_KEY, or run the endpoints through your x402 client (see references/vanilla-x402-flow.md).");
-  }
-  if (res.status === 403) {
-    die(2, "Insufficient Quotient credits (403). Top up at https://dev.quotient.social.");
-  }
-  if (res.status === 422) die(2, `invalid request (422): ${detail}`);
-  die(1, `Quotient API error ${res.status}: ${detail}`);
+  return body;
 }
 
-async function fetchSignals(base, apiKey, opts) {
+async function fetchSignals(base, maxPayment, opts) {
   const signals = [];
   let cursor = null;
   for (let page = 0; page < MAX_SIGNAL_PAGES; page++) {
@@ -220,7 +218,7 @@ async function fetchSignals(base, apiKey, opts) {
       limit: "50",
     });
     if (cursor) params.set("cursor", cursor);
-    const body = await quotientGet(base, apiKey, `/api/v1/signals?${params}`);
+    const body = await quotientGet(base, maxPayment, `/api/v1/signals?${params}`);
     signals.push(...(Array.isArray(body.signals) ? body.signals : []));
     if (!body.has_more || !body.next_cursor) break;
     cursor = body.next_cursor;
@@ -373,15 +371,12 @@ function printTable(rows) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
-  const apiKey = process.env.QUOTIENT_API_KEY;
-  if (!apiKey) {
-    die(2, "Set QUOTIENT_API_KEY (free key + starter credits at https://dev.quotient.social) or run these endpoints through your x402 client — see references/bankr-preferred-flow.md / vanilla-x402-flow.md.");
-  }
   const bankrKey = process.env.BANKR_API_KEY;
   if (opts.execute && !bankrKey) {
     die(2, "--execute requires BANKR_API_KEY (Bankr Agent API key with read-write; `bankr login ... --agent-api --read-write`). Without it, run dry (default) and hand the prompts to Bankr yourself.");
   }
   const base = (process.env.QUOTIENT_BASE_URL || DEFAULT_BASE).replace(/\/+$/, "");
+  const maxPayment = process.env.QUOTIENT_MAX_PAYMENT_USD || "0.10";
 
   const nowMs = Date.now();
   const asOf = new Date(nowMs).toISOString();
@@ -389,7 +384,7 @@ async function main() {
 
   // (1) Candidates: server-side filters, then belt-and-braces client re-filter.
   const [fetched, held] = await Promise.all([
-    fetchSignals(base, apiKey, opts),
+    fetchSignals(base, maxPayment, opts),
     fetchHeldSet(opts.wallet),
   ]);
 

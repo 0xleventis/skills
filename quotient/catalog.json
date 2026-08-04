@@ -10,7 +10,8 @@
     "code": "# Active Quotient signals updated by Q in the last 24h\n./scripts/quotient.sh signals\n\n# The featured signal\n./scripts/quotient.sh featured\n\n# Hold-or-sell read on a Polymarket wallet\n./scripts/converge-monitor.sh 0xYourPolymarketWallet"
   },
   "setup": [
-    "Get a Quotient API key at https://dev.quotient.social (email/Google, free starter credits) and export QUOTIENT_API_KEY, or use x402 pay-per-call (see references/vanilla-x402-flow.md).",
+    "Log in to the Bankr CLI and fund a payment option advertised by the runtime PAYMENT-REQUIRED challenge: Base USDC or Robinhood Chain USDG. Confirm the installed client supports the selected offer (see references/vanilla-x402-flow.md).",
+    "To pay USDG, require scheme exact on eip155:4663 with the canonical 6-decimal asset 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168; match network and asset, not symbol alone.",
     "Install jq and node >= 18.",
     "Optional: `bankr login email <addr> --code <otp> --accept-terms --agent-api --read-write` and export BANKR_API_KEY if you want signal-strategy.mjs to execute (default is dry-run)."
   ],

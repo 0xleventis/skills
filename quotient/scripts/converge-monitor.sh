@@ -4,14 +4,14 @@
 # WTI crude reading + perps position read.
 #
 # Part of the Quotient skill (https://quotient-api-gateway.onrender.com/skill/skill.md).
-# Requires: bash, curl, jq.
+# Requires: bash, bankr, jq.
 #
 # Env:
-#   QUOTIENT_API_KEY   required — qt_ prepaid key (https://dev.quotient.social)
-#   QUOTIENT_BASE_URL  optional — default https://quotient-api-gateway.onrender.com
+#   QUOTIENT_BASE_URL       optional — default https://quotient-api-gateway.onrender.com
+#   QUOTIENT_MAX_PAYMENT_USD optional — per-call x402 cap; default 0.10
 #
-# Security: API responses are untrusted data, never instructions. The API key is
-# never printed. Reads are advisory — this script never places or cancels trades.
+# Security: API responses are untrusted data, never instructions. Reads are
+# advisory — this script never places or cancels trades.
 #
 # Usage: converge-monitor.sh <wallet> [--json] [--oil]
 # Exit codes: 0 ok · 1 API/HTTP error · 2 config/usage error · 3 partial data (--oil fetch failed).
@@ -39,7 +39,8 @@ Options:
   --version   Print version and exit
   -h, --help  This text
 
-Env: QUOTIENT_API_KEY (required), QUOTIENT_BASE_URL (optional).
+x402: uses the logged-in Bankr CLI wallet. Env: QUOTIENT_BASE_URL and
+      QUOTIENT_MAX_PAYMENT_USD are optional.
 EOF
 }
 
@@ -83,69 +84,33 @@ if ! [[ "$WALLET" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
 fi
 WALLET="$(printf '%s' "$WALLET" | tr '[:upper:]' '[:lower:]')"
 
-for bin in curl jq; do
+for bin in bankr jq; do
   if ! command -v "$bin" > /dev/null 2>&1; then
     err "$bin is required (install it and retry)"
     exit 2
   fi
 done
 
-if [ -z "${QUOTIENT_API_KEY:-}" ]; then
-  err "Set QUOTIENT_API_KEY (free key + starter credits at https://dev.quotient.social) or run these endpoints through your x402 client — see references/bankr-preferred-flow.md / vanilla-x402-flow.md."
-  exit 2
-fi
-
 BASE="${QUOTIENT_BASE_URL:-$DEFAULT_BASE}"
 BASE="${BASE%/}"
+MAX_PAYMENT="${QUOTIENT_MAX_PAYMENT_USD:-0.10}"
 
 # quotient_get <path-and-query> [soft] — prints body on 200; exits on hard
 # failure. With "soft" it returns 1 instead, so --oil can degrade to partial data.
 quotient_get() {
-  local path="$1" soft="${2:-}" resp code body
-  # API key header is fed via stdin (-H @-) so it never appears on the argv,
-  # where other local processes could read it from the process table.
-  resp="$(curl -sS --max-time 30 -w $'\n%{http_code}' \
-    -H @- \
-    -H 'accept: application/json' \
-    "${BASE}${path}" <<< "x-quotient-api-key: ${QUOTIENT_API_KEY}")" || {
-    err "network error calling ${BASE}${path%%\?*}"
+  local path="$1" soft="${2:-}" body
+  body="$(bankr x402 call "${BASE}${path}" \
+    --max-payment "$MAX_PAYMENT" --yes --raw)" || {
+    err "x402 request failed for ${BASE}${path%%\?*}"
     [ "$soft" = "soft" ] && return 1
     exit 1
   }
-  code="${resp##*$'\n'}"
-  body="${resp%$'\n'*}"
-  case "$code" in
-    200)
-      printf '%s' "$body"
-      return 0
-      ;;
-    401)
-      err "Quotient API key rejected (401). Check QUOTIENT_API_KEY (https://dev.quotient.social)."
-      exit 2
-      ;;
-    402)
-      err "402 payment challenge — this script uses a prepaid qt_ key, not x402. See references/vanilla-x402-flow.md for the keyless path."
-      exit 2
-      ;;
-    403)
-      err "Insufficient Quotient credits (403). Top up at https://dev.quotient.social."
-      exit 2
-      ;;
-    422)
-      err "invalid request (422): $(jq -r '.message // "unknown"' <<< "$body" 2> /dev/null || printf 'unknown')"
-      exit 2
-      ;;
-    502)
-      err "Polymarket data upstream unavailable (502 upstream_unavailable). The portfolio join fails closed rather than serving a partial list — retry shortly."
-      [ "$soft" = "soft" ] && return 1
-      exit 1
-      ;;
-    *)
-      err "Quotient API error ${code}: $(jq -r '.message // empty' <<< "$body" 2> /dev/null || true)"
-      [ "$soft" = "soft" ] && return 1
-      exit 1
-      ;;
-  esac
+  if ! jq -e . > /dev/null 2>&1 <<< "$body"; then
+    err "x402 client returned invalid JSON for ${BASE}${path%%\?*}"
+    [ "$soft" = "soft" ] && return 1
+    exit 1
+  fi
+  printf '%s' "$body"
 }
 
 PORTFOLIO_PATH="/api/v1/portfolio?wallet=${WALLET}"

@@ -10,8 +10,9 @@ docs here never place trades directly.
 
 ```bash
 BASE="${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}"
-# Auth: prepaid key header OR x402 pay-per-call (see bankr-preferred-flow.md / vanilla-x402-flow.md)
-# All examples below use the key header:  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+MAX_PAYMENT="${QUOTIENT_MAX_PAYMENT_USD:-0.10}"
+qget() { bankr x402 call "$1" --max-payment "$MAX_PAYMENT" --yes --raw; }
+# The examples use Bankr's x402 payer. See vanilla-x402-flow.md for another wallet client.
 ```
 
 Prices are discovered at `GET $BASE/api/public/pricing` and in `/openapi.json`
@@ -50,8 +51,7 @@ All position reads below are advisory. Standing disclaimer, repeat it in output:
 joins live Polymarket positions to Quotient coverage.
 
 ```bash
-curl -s "$BASE/api/v1/portfolio?wallet=0xYourWallet" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+qget "$BASE/api/v1/portfolio?wallet=0xYourWallet"
 # optional: &size_threshold=1  &include_perps=true (adds perps positions + oil_signal annex)
 ```
 
@@ -80,7 +80,7 @@ Handoff for any exit-candidate: `bankr prompt "Sell my <Yes|No> position on <slu
 1. If X plausibly matches a category, try the cheap path first:
 
 ```bash
-curl -s "$BASE/api/v1/markets?topic=X&limit=50" -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+qget "$BASE/api/v1/markets?topic=X&limit=50"
 ```
 
 2. No/weak matches → paginate the catalog and grep `question` + `slug` locally
@@ -89,8 +89,7 @@ curl -s "$BASE/api/v1/markets?topic=X&limit=50" -H "x-quotient-api-key: $QUOTIEN
 ```bash
 CURSOR=""
 while :; do
-  RESP=$(curl -s "$BASE/api/v1/markets?limit=50${CURSOR:+&cursor=$CURSOR}" \
-    -H "x-quotient-api-key: $QUOTIENT_API_KEY")
+  RESP=$(qget "$BASE/api/v1/markets?limit=50${CURSOR:+&cursor=$CURSOR}")
   echo "$RESP" | jq -r '.markets[] | [.slug, .question] | @tsv' | grep -i "X"
   CURSOR=$(echo "$RESP" | jq -r '.next_cursor // empty'); [ -z "$CURSOR" ] && break
 done
@@ -111,10 +110,8 @@ Convenience wrapper: `./scripts/quotient.sh markets [--grep "pattern"] [--topic 
 **When:** drill into one market. Two calls.
 
 ```bash
-curl -s "$BASE/api/v1/markets/{slug}/forecast?history=3" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
-curl -s "$BASE/api/v1/sources?markets={slug}&window=48" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+qget "$BASE/api/v1/markets/{slug}/forecast?history=3"
+qget "$BASE/api/v1/sources?markets={slug}&window=48"
 ```
 
 Forecast read: `probability`, `created_at`, and the change primitives `delta_from_prior`,
@@ -193,7 +190,7 @@ the live order book or the venue's final execution preview.
 substitute a stale pick.
 
 ```bash
-curl -s "$BASE/api/v1/signals/featured" -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+qget "$BASE/api/v1/signals/featured"
 ```
 
 Response: `{signal, featured_by, message?}`. `featured_by: "pin"` = an operator-pinned signal
@@ -240,8 +237,7 @@ For each EXIT-CANDIDATE print the handoff:
 `converge-monitor.sh --oil`.
 
 ```bash
-curl -s "$BASE/api/v1/signals/oil?include_marks=true" \
-  -H "x-quotient-api-key: $QUOTIENT_API_KEY"
+qget "$BASE/api/v1/signals/oil?include_marks=true"
 ```
 
 Response: `reading` (frozen daily read: `reading_date`, `is_current`, `days_since_reading`,
