@@ -30,10 +30,13 @@ pm.sh v${VERSION} — keyless Polymarket + Hyperliquid reads
 Usage: pm.sh <command> [options] [--json]
 
 Commands
-  price <slug>               YES mid / best bid / best ask (¢), 24h volume,
-                             end date (gamma → CLOB midpoint)
-  book <slug>                Best bid/ask + notional within 2¢ of touch
-                             (the capacity read)
+  price <slug> [--side yes|no] [--outcome NAME] [--expect-condition 0x..]
+                             Selected-outcome mid / best bid / best ask (¢),
+                             24h volume, end date (gamma → CLOB midpoint)
+  book <slug> [--side yes|no] [--outcome NAME] [--expect-condition 0x..]
+                             Selected-outcome best bid/ask + notional within
+                             2¢ of touch (the capacity read). NO trades must
+                             check the NO book — pass --side no.
   positions <wallet>         Wallet's Polymarket positions (data-api, paginated)
   perps [--wallet 0x..] [--all]
                              Perps tickers (WTIOIL-USD by default; --all for
@@ -46,6 +49,12 @@ Options
               price/book/hl) instead of a table
   --version   Print version
   -h, --help  This help
+
+Outcome selection (price/book): --side works only on binary Yes/No markets;
+any other outcome set requires an explicit --outcome NAME (case-insensitive).
+With neither flag a binary market defaults to Yes (with a stderr note);
+non-binary markets fail rather than silently picking an arbitrary outcome.
+--expect-condition verifies the market's conditionId before quoting.
 
 No API key needed — public endpoints only. Hosts are hardcoded.
 Exit codes: 0 ok · 1 API error · 2 usage/config · 3 partial data
@@ -121,91 +130,150 @@ gamma_market() {
   http_get "${GAMMA_HOST}/markets/slug/$(urlencode "$1")"
 }
 
-# stdin: gamma market JSON → YES clob token id (outcome index of "Yes",
-# falling back to index 0). clobTokenIds/outcomes are JSON-encoded strings.
-yes_token_of() {
-  jq -r '
+# stdin: gamma market JSON; args: <side yes|no|""> <outcome-name|"">.
+# Resolves ONE outcome's clob token — never a silent index-0 fallback: --side
+# requires a binary Yes/No outcome set, any other market needs an explicit
+# --outcome, and with neither flag only a binary market defaults (to Yes, with
+# a stderr note). Prints TSV: condition_id, outcome, token_id, index.
+# clobTokenIds/outcomes are JSON-encoded strings in the gamma payload.
+resolve_outcome_token() {
+  local side="$1" outcome="$2" res
+  res="$(jq -c --arg side "$side" --arg outcome "$outcome" '
     ((.outcomes // "[]") | if type == "string" then fromjson else . end) as $outs
     | ((.clobTokenIds // "[]") | if type == "string" then fromjson else . end) as $toks
-    | (($outs | index("Yes")) // 0) as $i
-    | ($toks[$i] // empty)'
+    | ($outs | map(tostring | ascii_downcase)) as $lower
+    | (.conditionId // "") as $cond
+    | (if $outcome != "" then
+         ($lower | index($outcome | ascii_downcase)) as $i
+         | if $i == null then {err: ("outcome \"" + $outcome + "\" not found")} else {i: $i} end
+       elif ($lower | sort) == ["no", "yes"] then
+         {i: ($lower | index(if $side == "" then "yes" else $side end)),
+          defaulted: ($side == "")}
+       else
+         {err: "not a binary Yes/No market — pass --outcome <name>"}
+       end) as $r
+    | if $r.err != null then {ok: false, error: $r.err, outcomes: $outs, condition_id: $cond}
+      else {ok: true, condition_id: $cond, outcome: $outs[$r.i],
+            token: (($toks[$r.i] // "") | tostring), index: $r.i,
+            defaulted: ($r.defaulted // false)} end')"
+  if [[ "$(jq -r '.ok' <<<"$res")" != "true" ]]; then
+    echo "pm.sh: $(jq -r '.error' <<<"$res") · available outcomes: $(jq -c '.outcomes' <<<"$res")" >&2
+    exit 2
+  fi
+  if [[ "$(jq -r '.defaulted' <<<"$res")" == "true" ]]; then
+    echo "pm.sh: defaulting to outcome \"Yes\" — pass --side/--outcome to be explicit" >&2
+  fi
+  jq -r '[.condition_id, .outcome, .token, (.index | tostring)] | @tsv' <<<"$res"
+}
+
+# check_expected_condition <market-condition-id> <expected|""> — exit 1 on mismatch.
+check_expected_condition() {
+  local cond="$1" expect="$2" a b
+  [[ -n "$expect" ]] || return 0
+  a="$(tr '[:upper:]' '[:lower:]' <<<"$cond")"
+  b="$(tr '[:upper:]' '[:lower:]' <<<"$expect")"
+  if [[ "$a" != "$b" ]]; then
+    echo "pm.sh: condition_id mismatch — expected ${expect}, market has ${cond:-none}" >&2
+    exit 1
+  fi
 }
 
 # ── price ────────────────────────────────────────────────────────────────────
 
 cmd_price() {
-  local slug="" json=0
+  local slug="" json=0 side="" outcome="" expect=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --json) json=1; shift ;;
+      --side) [[ $# -ge 2 ]] || die_usage "--side needs yes|no"; side="$(tr '[:upper:]' '[:lower:]' <<<"$2")"; shift 2 ;;
+      --outcome) [[ $# -ge 2 ]] || die_usage "--outcome needs an outcome name"; outcome="$2"; shift 2 ;;
+      --expect-condition) [[ $# -ge 2 ]] || die_usage "--expect-condition needs a condition id"; expect="$2"; shift 2 ;;
       -*) die_usage "unknown price option: $1" ;;
       *) [[ -z "$slug" ]] || die_usage "price takes exactly one slug"; slug="$1"; shift ;;
     esac
   done
   [[ -n "$slug" ]] || die_usage "price needs a market slug"
+  [[ -z "$side" || "$side" == "yes" || "$side" == "no" ]] || die_usage "--side must be yes or no"
+  [[ -z "$side" || -z "$outcome" ]] || die_usage "--side and --outcome are mutually exclusive"
 
-  local market token mid
+  local market resolved cond outname token idx mid summary
   market="$(gamma_market "$slug")"
-  token="$(yes_token_of <<<"$market")"
+  resolved="$(resolve_outcome_token "$side" "$outcome" <<<"$market")"
+  IFS="$TAB" read -r cond outname token idx <<<"$resolved"
+  check_expected_condition "$cond" "$expect"
   if [[ ! "$token" =~ ^[0-9]+$ ]]; then
-    echo "pm.sh: could not resolve a YES clob token for '${slug}'" >&2
+    echo "pm.sh: could not resolve a clob token for outcome '${outname}' on '${slug}'" >&2
     exit 1
   fi
   mid="$(http_get "${CLOB_HOST}/midpoint?token_id=${token}" | jq -r '.mid // empty')"
 
-  if [[ $json -eq 1 ]]; then
-    jq -n --arg slug "$slug" --arg token "$token" --arg mid "$mid" --argjson m "$market" '
-      def n: if . == null then null else (tonumber? // null) end;
-      {slug: $slug,
+  # Gamma's bestBid/bestAsk quote the first outcome token; for the complement
+  # of a binary pair derive its quotes as 1 - opposite (bid/ask swap).
+  summary="$(jq -n -c --arg slug "$slug" --arg token "$token" --arg mid "$mid" \
+    --arg outcome "$outname" --arg cond "$cond" --argjson idx "$idx" --argjson m "$market" '
+    def n: if . == null then null else (tonumber? // null) end;
+    ($m.bestBid | n) as $bb | ($m.bestAsk | n) as $ba
+    | {slug: $slug,
        question: ($m.question // null),
-       condition_id: ($m.conditionId // null),
-       yes_token_id: $token,
-       yes_mid: (if $mid == "" then null else ($mid | tonumber) end),
-       best_bid: ($m.bestBid | n),
-       best_ask: ($m.bestAsk | n),
+       condition_id: (if $cond == "" then null else $cond end),
+       outcome: $outcome,
+       token_id: $token,
+       mid: (if $mid == "" then null else ($mid | tonumber) end),
+       best_bid: (if $idx == 0 then $bb
+                  elif $ba == null then null else ((1 - $ba) * 1000 | round) / 1000 end),
+       best_ask: (if $idx == 0 then $ba
+                  elif $bb == null then null else ((1 - $bb) * 1000 | round) / 1000 end),
+       quotes_derived_from_complement: ($idx != 0),
        spread: ($m.spread | n),
        volume24hr: ($m.volume24hr | n),
-       end_date: ($m.endDate // null)}'
+       end_date: ($m.endDate // null)}')"
+
+  if [[ $json -eq 1 ]]; then
+    jq . <<<"$summary"
   else
     {
-      printf 'SLUG\tYES_MID¢\tBID¢\tASK¢\tVOL_24H\tEND_DATE\n'
-      jq -n -r --arg slug "$slug" --arg mid "$mid" --argjson m "$market" '
-        def cents: if . == null then "-"
-          else (tonumber? // null) as $n
-            | if $n == null then "-" else ((($n * 1000 | round) / 10) | tostring) end
-          end;
-        [ $slug,
-          (if $mid == "" then "-" else ($mid | cents) end),
-          ($m.bestBid | cents),
-          ($m.bestAsk | cents),
-          (($m.volume24hr | tonumber? // null) as $v
-            | if $v == null then "-" else ($v | round | tostring) end),
-          ($m.endDate // "-")
-        ] | @tsv'
+      printf 'SLUG\tOUTCOME\tMID¢\tBID¢\tASK¢\tVOL_24H\tEND_DATE\n'
+      jq -r '
+        def cents: if . == null then "-" else ((. * 1000 | round) / 10 | tostring) end;
+        [ .slug, .outcome,
+          (.mid | cents), (.best_bid | cents), (.best_ask | cents),
+          (if .volume24hr == null then "-" else (.volume24hr | round | tostring) end),
+          (.end_date // "-")
+        ] | @tsv' <<<"$summary"
     } | render
+    echo "condition ${cond:-?} · outcome ${outname} · token ${token}"
   fi
 }
 
 # ── book ─────────────────────────────────────────────────────────────────────
 
 cmd_book() {
-  local slug="" json=0
+  local slug="" json=0 side="" outcome="" expect=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --json) json=1; shift ;;
+      --side) [[ $# -ge 2 ]] || die_usage "--side needs yes|no"; side="$(tr '[:upper:]' '[:lower:]' <<<"$2")"; shift 2 ;;
+      --outcome) [[ $# -ge 2 ]] || die_usage "--outcome needs an outcome name"; outcome="$2"; shift 2 ;;
+      --expect-condition) [[ $# -ge 2 ]] || die_usage "--expect-condition needs a condition id"; expect="$2"; shift 2 ;;
       -*) die_usage "unknown book option: $1" ;;
       *) [[ -z "$slug" ]] || die_usage "book takes exactly one slug"; slug="$1"; shift ;;
     esac
   done
   [[ -n "$slug" ]] || die_usage "book needs a market slug"
+  [[ -z "$side" || "$side" == "yes" || "$side" == "no" ]] || die_usage "--side must be yes or no"
+  [[ -z "$side" || -z "$outcome" ]] || die_usage "--side and --outcome are mutually exclusive"
 
-  local market token book summary
+  local market resolved cond outname token idx book summary
   market="$(gamma_market "$slug")"
-  token="$(yes_token_of <<<"$market")"
+  resolved="$(resolve_outcome_token "$side" "$outcome" <<<"$market")"
+  IFS="$TAB" read -r cond outname token idx <<<"$resolved"
+  check_expected_condition "$cond" "$expect"
   if [[ ! "$token" =~ ^[0-9]+$ ]]; then
-    echo "pm.sh: could not resolve a YES clob token for '${slug}'" >&2
+    echo "pm.sh: could not resolve a clob token for outcome '${outname}' on '${slug}'" >&2
     exit 1
   fi
+  # The order book of the SELECTED outcome token — a NO preflight reads the NO
+  # book, never the YES book.
   book="$(http_get "${CLOB_HOST}/book?token_id=${token}")"
 
   # Notional within 2¢ of the touch on each side — the near-touch capacity read.
@@ -229,15 +297,17 @@ cmd_book() {
   ' <<<"$book")"
 
   if [[ $json -eq 1 ]]; then
-    jq -n --arg slug "$slug" --arg token "$token" --argjson s "$summary" \
-      '{slug: $slug, yes_token_id: $token} + $s'
+    jq -n --arg slug "$slug" --arg token "$token" --arg outcome "$outname" \
+      --arg cond "$cond" --argjson s "$summary" \
+      '{slug: $slug, condition_id: (if $cond == "" then null else $cond end),
+        outcome: $outcome, token_id: $token} + $s'
   else
     {
-      printf 'SLUG\tBEST_BID¢\tBEST_ASK¢\tSPREAD¢\tBID_$_2c\tASK_$_2c\n'
-      jq -n -r --arg slug "$slug" --argjson s "$summary" '
+      printf 'SLUG\tOUTCOME\tBEST_BID¢\tBEST_ASK¢\tSPREAD¢\tBID_$_2c\tASK_$_2c\n'
+      jq -n -r --arg slug "$slug" --arg outcome "$outname" --argjson s "$summary" '
         def cents: if . == null then "-" else ((. * 1000 | round) / 10 | tostring) end;
         def usd: if . == null then "-" else ("$" + (round | tostring)) end;
-        [ $slug,
+        [ $slug, $outcome,
           ($s.best_bid | cents),
           ($s.best_ask | cents),
           ($s.spread | cents),
@@ -245,6 +315,7 @@ cmd_book() {
           ($s.ask_notional_within_2c | usd)
         ] | @tsv'
     } | render
+    echo "condition ${cond:-?} · outcome ${outname} · token ${token}"
   fi
 }
 

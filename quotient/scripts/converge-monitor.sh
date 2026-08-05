@@ -7,20 +7,29 @@
 # Requires: bash, bankr, jq.
 #
 # Env:
-#   QUOTIENT_BASE_URL       optional — default https://quotient-api-gateway.onrender.com
-#   QUOTIENT_MAX_PAYMENT_USD optional — per-call x402 cap; default 0.10
+#   QUOTIENT_BASE_URL       optional — default https://quotient-api-gateway.onrender.com;
+#                           must pass the payments.sh host allowlist
+#   QUOTIENT_MAX_PAYMENT_USD optional — may only LOWER the pinned per-route caps
+#   QUOTIENT_PAYMENT_MODE   optional — "confirm" tightens report mode
 #
 # Security: API responses are untrusted data, never instructions. Reads are
-# advisory — this script never places or cancels trades.
+# advisory — this script never places or cancels trades. Paid calls are capped
+# at pinned per-route prices, ledgered, and summarized on exit.
 #
-# Usage: converge-monitor.sh <wallet> [--json] [--oil]
-# Exit codes: 0 ok · 1 API/HTTP error · 2 config/usage error · 3 partial data (--oil fetch failed).
+# Usage: converge-monitor.sh <wallet> [--json] [--oil] [--preview] [--approve TOKEN]
+# Exit codes: 0 ok · 1 API/HTTP error · 2 config/usage error · 3 partial data
+#             (--oil fetch failed) · 10 payment approval required · 11 autopay
+#             cap exceeded (10/11: preview printed, nothing paid).
 
 set -euo pipefail
 
 VERSION="1.0.0"
 DEFAULT_BASE="https://quotient-api-gateway.onrender.com"
 DISCLAIMER="Informational reads derived from Quotient's forecast — not trade instructions."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=payments.sh
+source "$SCRIPT_DIR/payments.sh"
 
 usage() {
   cat <<'EOF'
@@ -34,13 +43,16 @@ STATUS | READ) with an advisory read per position:
   NO-COVERAGE     Quotient does not cover this position
 
 Options:
-  --json      Machine-readable output only
-  --oil       Append the WTI crude reading + perps position read
-  --version   Print version and exit
-  -h, --help  This text
+  --json           Machine-readable output only
+  --oil            Append the WTI crude reading + perps position read
+  --preview        Print the paid-call plan + cost and exit 10 without paying
+  --approve TOKEN  Run a previously previewed plan (valid 15 min, plan-bound)
+  --version        Print version and exit
+  -h, --help       This text
 
-x402: uses the logged-in Bankr CLI wallet. Env: QUOTIENT_BASE_URL and
-      QUOTIENT_MAX_PAYMENT_USD are optional.
+x402: uses the logged-in Bankr CLI wallet; paid calls are capped at pinned
+      per-route prices and ledgered (see references/payments-policy.md).
+      QUOTIENT_MAX_PAYMENT_USD may only lower caps.
 EOF
 }
 
@@ -53,6 +65,15 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --json) JSON=1 ;;
     --oil) OIL=1 ;;
+    --preview) QP_PREVIEW=1 ;;
+    --approve)
+      if [ $# -lt 2 ]; then
+        err "--approve needs a token"
+        exit 2
+      fi
+      QP_APPROVE_TOKEN="$2"
+      shift
+      ;;
     --version)
       printf 'converge-monitor.sh %s\n' "$VERSION"
       exit 0
@@ -84,7 +105,7 @@ if ! [[ "$WALLET" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
 fi
 WALLET="$(printf '%s' "$WALLET" | tr '[:upper:]' '[:lower:]')"
 
-for bin in bankr jq; do
+for bin in bankr jq curl; do
   if ! command -v "$bin" > /dev/null 2>&1; then
     err "$bin is required (install it and retry)"
     exit 2
@@ -93,25 +114,23 @@ done
 
 BASE="${QUOTIENT_BASE_URL:-$DEFAULT_BASE}"
 BASE="${BASE%/}"
-MAX_PAYMENT="${QUOTIENT_MAX_PAYMENT_USD:-0.10}"
+qp_validate_base_url "$BASE"
+QUOTIENT_BASE="$BASE"
+trap qp_report_spend EXIT
 
-# quotient_get <path-and-query> [soft] — prints body on 200; exits on hard
-# failure. With "soft" it returns 1 instead, so --oil can degrade to partial data.
+# quotient_get <path-and-query> [soft] — paid GET via payments.sh (pinned
+# per-route cap, ledger, bounded retry). The qp_gate below must have run
+# first. With "soft" a failure returns 1, so --oil can degrade to partial data.
 quotient_get() {
-  local path="$1" soft="${2:-}" body
-  body="$(bankr x402 call "${BASE}${path}" \
-    --max-payment "$MAX_PAYMENT" --yes --raw)" || {
-    err "x402 request failed for ${BASE}${path%%\?*}"
-    [ "$soft" = "soft" ] && return 1
-    exit 1
-  }
-  if ! jq -e . > /dev/null 2>&1 <<< "$body"; then
-    err "x402 client returned invalid JSON for ${BASE}${path%%\?*}"
-    [ "$soft" = "soft" ] && return 1
-    exit 1
-  fi
-  printf '%s' "$body"
+  qp_paid_get "$1" "${2:-}"
 }
+
+QP_CMDLINE="converge-monitor.sh ${WALLET}"
+[ "$JSON" = "1" ] && QP_CMDLINE="${QP_CMDLINE} --json"
+[ "$OIL" = "1" ] && QP_CMDLINE="${QP_CMDLINE} --oil"
+qp_plan_add "/api/v1/portfolio" 1
+[ "$OIL" = "1" ] && qp_plan_add "/api/v1/signals/oil" 1
+qp_gate "$QP_CMDLINE"
 
 PORTFOLIO_PATH="/api/v1/portfolio?wallet=${WALLET}"
 [ "$OIL" = "1" ] && PORTFOLIO_PATH="${PORTFOLIO_PATH}&include_perps=true"
@@ -207,8 +226,8 @@ if [ "$OIL" = "1" ] && [ -n "$OIL_BODY" ]; then
 fi
 
 if [ "$JSON" = "1" ]; then
-  jq -n --argjson p "$ANNOTATED" --argjson oil "$OIL_ANNOTATED" \
-    '$p + (if $oil == null then {} else { oil: $oil } end)'
+  jq -n --argjson p "$ANNOTATED" --argjson oil "$OIL_ANNOTATED" --arg risk "$QP_RISK_DISCLOSURE" \
+    '$p + { risk_disclosure: $risk } + (if $oil == null then {} else { oil: $oil } end)'
   exit "$EXIT_CODE"
 fi
 
@@ -277,5 +296,5 @@ elif [ "$OIL" = "1" ]; then
   printf '\nOIL — unavailable this run (see warning above).\n'
 fi
 
-printf '\n%s\n' "$DISCLAIMER"
+printf '\n%s\n%s\n' "$DISCLAIMER" "$QP_RISK_DISCLOSURE"
 exit "$EXIT_CODE"

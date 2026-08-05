@@ -3,20 +3,29 @@
 # Quotient Agent Workflows
 
 The a–g playbook: which endpoint(s) to call, in what order, how to read the fields, and how to
-hand execution off to Bankr. Quotient supplies intelligence; Bankr executes trades. Scripts and
-docs here never place trades directly.
+hand execution off. Quotient supplies intelligence; trades belong to your execution provider
+(the handoff examples use Bankr's prompt format). Scripts and docs here never place trades
+directly.
 
 **Setup for every Quotient call**
 
+Prefer `./scripts/quotient.sh <cmd>` — it enforces the host allowlist, pins each call's
+`--max-payment` to the route's exact price, ledgers every payment, and prints a spend
+summary that MUST be surfaced to the user. The raw equivalent used in the snippets below
+takes the route's exact price explicitly and deliberately has no `-y`/`--yes` baked in —
+spends must pass the payment protocol in SKILL.md first:
+
 ```bash
-BASE="${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}"
-MAX_PAYMENT="${QUOTIENT_MAX_PAYMENT_USD:-0.10}"
-qget() { bankr x402 call "$1" --max-payment "$MAX_PAYMENT" --yes --raw; }
+BASE="${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}"  # allowlisted origin only
+# qget <url> <exact-route-price-usd> — cap every call at the route's exact price
+qget() { bankr x402 call "$1" --max-payment "$2" --raw; }
 # The examples use Bankr's x402 payer. See vanilla-x402-flow.md for another wallet client.
 ```
 
 Prices are discovered at `GET $BASE/api/public/pricing` and in `/openapi.json`
-(`x-payment-info`); the runtime `402` challenge is authoritative. Do not hardcode prices.
+(`x-payment-info`); the runtime `402` challenge is authoritative. A call failing at its
+pinned cap means the price changed — re-check pricing and get fresh approval; never
+blindly raise the cap. Every answer that made paid calls states the count and total cost.
 
 **Signal status vocabulary** (used throughout): `actionable` (live, eligible) ·
 `unconfirmed` (Q's latest forecast flipped side vs prior — awaiting confirmation) ·
@@ -24,16 +33,23 @@ Prices are discovered at `GET $BASE/api/public/pricing` and in `/openapi.json`
 `done` (converged: `converge_upside_pct <= 0`) · `retired` (terminal, with `retired_reason`
 one of `resolved | flipped | fading_q | expired`).
 
-**Bankr execution handoff** (used by several workflows; always slug, never question text):
+**Execution handoff** (used by several workflows; examples in Bankr prompt format — translate
+to your provider's equivalent; always slug, never question text):
 
-Before emitting either prompt, run `./scripts/pm.sh book <slug>` and give the user a
-liquidity preflight: proposed USD size; current Q-side cost and pricing timestamp; API
-`capacity_usd_at_2c`, `capacity_basis`, and `capacity_as_of`; proposed size as a percentage
-of known capacity; and the current bid/ask, spread, and 2-cent depth. State plainly that
-capacity is near-touch depth, not a guaranteed fill or exact impact estimate, and that a
-market order may walk the book. If the snapshot is stale/unknown, uses `volume-fallback`, or
-the order is material relative to live depth, ask the user to reduce size, use a limit order
-when supported, or explicitly accept the slippage risk before handing off the trade.
+Before emitting either prompt, run
+`./scripts/pm.sh book <slug> --side <yes|no> --expect-condition <condition_id>` — the book
+read MUST be outcome-aware (a NO trade preflights the NO book, whose liquidity differs from
+the YES book) and condition-verified — and give the user a liquidity preflight: proposed
+USD size; current Q-side cost and pricing timestamp; API `capacity_usd_at_2c`,
+`capacity_basis`, and `capacity_as_of`; proposed size as a percentage of known capacity;
+and the current bid/ask, spread, and 2-cent depth. State plainly that capacity is
+near-touch depth, not a guaranteed fill or exact impact estimate, and that a market order
+may walk the book. If the snapshot is stale/unknown, uses `volume-fallback`, or the order
+is material relative to live depth, ask the user to reduce size, use a limit order when
+supported, or explicitly accept the slippage risk before handing off the trade.
+
+Deliver the Risk Disclosure from SKILL.md **verbatim** before asking for any buy or sell
+approval — prediction-market and perps handoffs alike.
 
 ```
 bankr prompt "Bet $25 on <Yes|No> for <slug> on Polymarket"
@@ -51,7 +67,7 @@ All position reads below are advisory. Standing disclaimer, repeat it in output:
 joins live Polymarket positions to Quotient coverage.
 
 ```bash
-qget "$BASE/api/v1/portfolio?wallet=0xYourWallet"
+qget "$BASE/api/v1/portfolio?wallet=0xYourWallet" 0.0025
 # optional: &size_threshold=1  &include_perps=true (adds perps positions + oil_signal annex)
 ```
 
@@ -80,7 +96,7 @@ Handoff for any exit-candidate: `bankr prompt "Sell my <Yes|No> position on <slu
 1. If X plausibly matches a category, try the cheap path first:
 
 ```bash
-qget "$BASE/api/v1/markets?topic=X&limit=50"
+qget "$BASE/api/v1/markets?topic=X&limit=50" 0.005
 ```
 
 2. No/weak matches → paginate the catalog and grep `question` + `slug` locally
@@ -89,7 +105,7 @@ qget "$BASE/api/v1/markets?topic=X&limit=50"
 ```bash
 CURSOR=""
 while :; do
-  RESP=$(qget "$BASE/api/v1/markets?limit=50${CURSOR:+&cursor=$CURSOR}")
+  RESP=$(qget "$BASE/api/v1/markets?limit=50${CURSOR:+&cursor=$CURSOR}" 0.005)
   echo "$RESP" | jq -r '.markets[] | [.slug, .question] | @tsv' | grep -i "X"
   CURSOR=$(echo "$RESP" | jq -r '.next_cursor // empty'); [ -z "$CURSOR" ] && break
 done
@@ -110,8 +126,8 @@ Convenience wrapper: `./scripts/quotient.sh markets [--grep "pattern"] [--topic 
 **When:** drill into one market. Two calls.
 
 ```bash
-qget "$BASE/api/v1/markets/{slug}/forecast?history=3"
-qget "$BASE/api/v1/sources?markets={slug}&window=48"
+qget "$BASE/api/v1/markets/{slug}/forecast?history=3" 0.01
+qget "$BASE/api/v1/sources?markets={slug}&window=48" 0.01
 ```
 
 Forecast read: `probability`, `created_at`, and the change primitives `delta_from_prior`,
@@ -147,7 +163,8 @@ path between paid Quotient calls (see Polling cadence below).
 ```bash
 node scripts/signal-strategy.mjs --wallet 0xYourWallet --budget 100 \
   [--min-conviction 2] [--status actionable] [--min-capacity 500] \
-  [--max-positions 5] [--window 24] [--json] [--execute]
+  [--max-positions 5] [--window 24] [--json] \
+  [--preview] [--approve TOKEN] [--execute] [--confirm HASH]
 ```
 
 The engine fetches `GET /api/v1/signals?window=24&status=actionable` and filters:
@@ -177,12 +194,32 @@ Sizing: `min(budget / n, 0.10 × capacity_usd_at_2c)` — never more than 10% of
 uncapped only on volume-fallback rows.
 
 **Dry-run first, always.** Without `--execute` the script only prints the plan and `DRY-RUN>`
-prompt lines and writes no state. Review the plan, then either run the emitted
-`bankr prompt "Bet $<amt> on <Yes|No> for <slug> on Polymarket"` lines yourself or rerun with
-`--execute` (requires `BANKR_API_KEY`; submits via the Bankr Agent API and polls each job).
-The plan reports size and capacity and warns about price impact. Immediately before approval,
-re-read `./scripts/pm.sh book <slug>`; the persisted capacity snapshot is not a substitute for
-the live order book or the venue's final execution preview.
+prompt lines and writes no state.
+
+**Execution is two-phase — confirmation is bound to an exact plan:**
+
+1. `--execute` (phase 1) applies hard eligibility gates on top of the dry-run filters —
+   only `actionable`, `is_fresh`, `live_priced: true`, `capacity_basis: "depth-2c"` rows
+   survive (stale, graph-priced, and `volume-fallback` signals are rejected from
+   execution) — then cross-checks each market via the outcome-aware
+   `pm.sh book <slug> --side <yes|no> --expect-condition <condition_id>` read. It prints a
+   per-trade preview (market + question, `condition_id`, side + exact outcome token,
+   amount, live quote, % of live 2¢ depth, fee/slippage note, venue: Polymarket CLOB
+   settling on Polygon via Bankr) plus the Risk Disclosure, writes a hashed plan file,
+   and exits **12**. Nothing is submitted.
+2. Relay that preview to the user. Only after they approve **this exact plan**, run
+   `--execute --confirm <hash>` (requires `BANKR_API_KEY`) within the plan's 10-minute
+   TTL. It re-quotes every book (aborts if the ask drifted more than 2¢ or depth fell
+   below the order size), then submits sequentially via the Bankr Agent API.
+
+**Job verification.** A Bankr job status of `completed` is never treated as a fill. Each
+job's response is scanned for scanner/venue rejections (e.g. `untrusted_address` — batch
+stops), its transaction hash is verified as mined via public RPC (Base and Polygon), and
+the wallet's position in the exact outcome token must grow. Per-trade statuses:
+`executed-verified` · `submitted-unverified` (exit **13**: an order may be live — stop and
+check the wallet and Bankr job manually before re-running) · `failed`/`cancelled`/
+`timeout` (exit 3, batch stopped). The venue's own execution preview remains the final
+word on price.
 
 ## f. Featured signal
 
@@ -190,7 +227,7 @@ the live order book or the venue's final execution preview.
 substitute a stale pick.
 
 ```bash
-qget "$BASE/api/v1/signals/featured"
+qget "$BASE/api/v1/signals/featured" 0.01
 ```
 
 Response: `{signal, featured_by, message?}`. `featured_by: "pin"` = an operator-pinned signal
@@ -237,7 +274,7 @@ For each EXIT-CANDIDATE print the handoff:
 `converge-monitor.sh --oil`.
 
 ```bash
-qget "$BASE/api/v1/signals/oil?include_marks=true"
+qget "$BASE/api/v1/signals/oil?include_marks=true" 0.025
 ```
 
 Response: `reading` (frozen daily read: `reading_date`, `is_current`, `days_since_reading`,

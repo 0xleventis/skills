@@ -26,6 +26,15 @@ YES_TOKEN=$(curl -s "https://gamma-api.polymarket.com/markets/slug/{slug}" \
   | jq -r '.clobTokenIds | fromjson | .[0]')
 ```
 
+**Resolve by outcome name, never by bare index.** The index-0 shortcut above is only valid
+after confirming the outcomes really are `["Yes","No"]` — a NO-side preflight needs the NO
+token's book (its liquidity differs materially from the YES book), and non-Yes/No outcome
+sets exist. `pm.sh price|book` do this for you via `--side yes|no` / `--outcome <name>`
+(non-binary markets without `--outcome` fail rather than silently picking an index) and
+`--expect-condition <id>` verifies the market's `conditionId` before quoting. Output
+change vs earlier revisions: both commands now always report `condition_id`, `outcome`,
+and `token_id` (the old `yes_token_id`/`yes_mid` JSON keys are now `token_id`/`mid`).
+
 ## 2. CLOB price reads (`https://clob.polymarket.com`)
 
 Keyed by token_id. All keyless.

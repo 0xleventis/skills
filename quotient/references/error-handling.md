@@ -33,12 +33,24 @@ This file documents the x402 error contract used by the skill.
 The skill's helper scripts (`quotient.sh`, `pm.sh`, `signal-strategy.mjs`, `converge-monitor.sh`) use a shared exit-code contract:
 
 - `0` - Success.
-- `1` - API/HTTP error (non-2xx from Quotient or an external venue after retries).
-- `2` - Config/usage error (missing Bankr CLI/login, bad arguments); fix inputs, do not retry.
-- `3` - Partial data (some sub-reads degraded or unavailable — e.g. oil `degraded: true`, a null mark block, or `live_priced: false` rows); output is usable but flagged.
+- `1` - API/HTTP error (non-2xx from Quotient or an external venue after retries; also `pm.sh --expect-condition` mismatch).
+- `2` - Config/usage error (missing Bankr CLI/login, bad arguments, disallowed `QUOTIENT_BASE_URL`, invalid/expired approval token, non-binary market without `--outcome`); fix inputs, do not retry.
+- `3` - Partial data (some sub-reads degraded or unavailable — e.g. oil `degraded: true`, a null mark block, or `live_priced: false` rows); output is usable but flagged. For `signal-strategy.mjs --confirm` it also means the batch stopped on a failed/cancelled/timed-out job.
+- `10` - Payment approval required. A `payment_preview` JSON object was printed on stdout (human summary on stderr); **nothing was paid**. Relay the preview's costs to the user; on approval re-run with `--approve <token>`.
+- `11` - Autopay policy present but a cap/budget would be exceeded. Same `payment_preview` output; nothing was paid. Relay to the user; an explicit `--approve` overrides for one run, or the user raises caps via `quotient.sh autopay init --force`.
+- `12` - Execution confirmation required (`signal-strategy.mjs`): the trade plan was written and previewed, **nothing was submitted**. Also used when a confirm-time re-quote fails tolerance. Relay the plan + risk disclosure; on approval re-run with `--execute --confirm <hash>`.
+- `13` - Submitted-unverified (`signal-strategy.mjs --confirm`): a Bankr job completed but no mined receipt + position change could be verified. **An order may be live** — check the wallet and Bankr job manually before re-running. Batch stopped.
+
+Exit codes 10–13 are user-interaction states, not errors: relay them, never auto-retry them, and never fabricate an approval token or plan hash.
 
 ## Retry Guidance
 
 - Use exponential backoff with jitter for `429`, `502`, and other `5xx`.
 - Do not retry `422` without correcting inputs.
 - Keep retries idempotent and bounded.
+
+## Paid-Call Retry Rules
+
+- Scripts pay the live 402-challenge price under a pinned ceiling (2× the published price), so ordinary price changes never fail. A refusal names the cause: a price above the ceiling or a pinned-tuple mismatch (wrong payee/asset/network). Relay it to the user — a legitimate raise is accepted via a `route_overrides` entry, a tuple mismatch never is. Never blindly raise a cap.
+- Within one run each URL is paid at most once (responses are memoized); a failed paid call is retried once, each attempt is recorded in the spend ledger, and retries never exceed the run's approved worst-case total.
+- If the same URL was paid within the last 10 minutes, the scripts warn before paying again — the previous response may still be usable.

@@ -13,9 +13,21 @@ Canonical schemas: `https://quotient-api-gateway.onrender.com/openapi.json`. All
 ## Access and Authorization
 
 - Monetized requests use x402 pay-per-call (`402` challenge → sign → retry; see
-  `bankr-preferred-flow.md` / `vanilla-x402-flow.md`).
+  `bankr-x402-flow.md` / `vanilla-x402-flow.md`).
 - The examples use `bankr x402 call` with an explicit USD payment cap. Agents with another
   x402-compatible wallet should make the equivalent paid request through their client.
+- Every example pins `--max-payment` to the route's published price, so a raised gateway
+  price fails closed instead of overpaying — on a payment-cap failure re-read
+  `GET /api/public/pricing` and get fresh user approval; never blindly raise the cap. The
+  vendored scripts go further: they pre-flight each route's 402 challenge (a free read),
+  validate the pinned payment tuple (network, asset, payee, expiry), and cap at the live
+  price under a pinned ceiling of 2× the published price
+  (`references/payments-policy.md`).
+- The examples deliberately omit `-y`/`--yes` (which skips the Bankr CLI's own payment
+  confirmation). In non-interactive agent runtimes, run reads through
+  `scripts/quotient.sh` instead — it enforces the host allowlist, per-route caps, spend
+  ledger, and the payment protocol in `SKILL.md`, and adds `--yes` only for an authorized
+  spend.
 - Treat the runtime `402` challenge and `GET /api/public/pricing` as authoritative for prices. The table below is **indicative only**:
 
 | Endpoint | Indicative USD |
@@ -51,7 +63,7 @@ List covered markets with forecast status. Sorted catalog — there is no free-t
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets?sort=updated_desc&limit=2" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.005 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -102,7 +114,7 @@ Markets where Quotient's odds diverge from market odds. Only markets with YES od
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/mispriced?min_spread=0.08&limit=2" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.05 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -150,7 +162,7 @@ Batch lookup by identifier. Returns full intelligence objects (same schema as `/
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/lookup?slugs=russia-x-ukraine-ceasefire-in-2026,fed-rate-cut-september" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.005 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -171,7 +183,7 @@ Latest forecast plus optional prior history for diffing. Cheaper than `/intellig
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/forecast?history=1" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.01 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -224,7 +236,7 @@ Full intelligence briefing for one market: forecast odds, BLUF, key drivers with
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/intelligence" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.025 --raw
 ```
 
 No params.
@@ -259,7 +271,7 @@ Paginated **article-opinion reads** for one market (the pre-v5 "signals"). Not t
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/markets/russia-x-ukraine-ceasefire-in-2026/signals?limit=5" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.025 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -288,7 +300,7 @@ Batch recent-source feed (articles + X posts) for up to 10 markets in one call. 
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/sources?markets=russia-x-ukraine-ceasefire-in-2026&window=48&types=article,x_post" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.01 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -353,7 +365,7 @@ Active Quotient trade signals whose latest market forecast was updated inside th
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals?window=24&status=actionable&min_conviction=2" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.02 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -450,7 +462,7 @@ The single featured signal: an operator pin when set (and still healthy), else a
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals/featured" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.01 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -472,7 +484,7 @@ The WTI crude read: the latest frozen daily reading plus live venue marks (Polym
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signals/oil?include_marks=true" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.025 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -539,7 +551,7 @@ Wallet intelligence: Polymarket positions (live data-api prices) joined server-s
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/portfolio?wallet=0xEE4E0EB3A626713F5Efa98DB422fA73FdD1e94b8" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.0025 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -640,7 +652,7 @@ Quotient narratives created in the last `hours` hours (default 24), each with li
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/narratives" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.01 --raw
 ```
 
 | Param | Type | Default | Constraints |
@@ -678,7 +690,7 @@ Signal score for a Farcaster user.
 
 ```bash
 bankr x402 call "${QUOTIENT_BASE_URL:-https://quotient-api-gateway.onrender.com}/api/v1/signal-score?fid=3621" \
-  --max-payment 0.10 --yes --raw
+  --max-payment 0.005 --raw
 ```
 
 | Param | Type | Default | Constraints |
