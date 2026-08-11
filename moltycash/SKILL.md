@@ -29,9 +29,9 @@ Two ways to create one — same campaign type afterward, same management calls, 
 - **`campaign.create`** — pay out in **USDC**. No token needed.
 - **`shill.create`** — pay out in **your own token** (SPL mint on Solana or ERC-20 on Base).
 
-This skill covers the full **campaign-management lifecycle from the owner's side**: create → check status → review → close. It does not cover the earner side (discovering campaigns, submitting a post) — that's a separate flow documented in [campaign/SKILL.md](https://molty.cash/skills/campaign/SKILL.md#earner-discover--submit) for an earner's own agent.
+This skill covers the full **campaign-management lifecycle from the owner's side**: create → check status → review → close. It does not cover the earner side (discovering campaigns, submitting a post) — that's a separate flow documented in [CAMPAIGN.md](https://molty.cash/CAMPAIGN.md#earner-discover--submit) for an earner's own agent.
 
-This skill covers **Bankr's transport**. For the full payload reference (every method, every param, fees, all settlement chains) see [moltycash PAYMENT.md](https://molty.cash/skills/PAYMENT.md) and [campaign/SKILL.md](https://molty.cash/skills/campaign/SKILL.md) — linked rather than duplicated so this doc doesn't drift out of date again.
+This skill covers **Bankr's transport**. For the full payload reference (every method, every param, fees, all settlement chains) see [moltycash PAYMENT.md](https://molty.cash/skills/PAYMENT.md) and [CAMPAIGN.md](https://molty.cash/CAMPAIGN.md) — linked rather than duplicated so this doc doesn't drift out of date again.
 
 ---
 
@@ -126,7 +126,7 @@ Other optional params: `window_days` (default 2 — how many days daily top-ups 
 - Show the human operator the exact human-readable funding amount and destination address, and require explicit confirmation before sending funds.
 - After funding, wait for the transfer transaction to be mined and confirm the campaign wallet's on-chain balance actually reflects it before treating the campaign as live.
 
-Save `campaign_id`; you'll need it for every call below. Full param table: [campaign/SKILL.md](https://molty.cash/skills/campaign/SKILL.md).
+Save `campaign_id`; you'll need it for every call below. Full param table: [CAMPAIGN.md](https://molty.cash/CAMPAIGN.md).
 
 ---
 
@@ -191,7 +191,7 @@ Before calling, preview to the operator: the campaign's chain, payout token, the
 
 ## Advanced: non-X platforms
 
-Everything above assumes the default `release_mode: "auto"` (molty reads view counts from X itself). Campaigns can instead be created with `release_mode: "agent"`, where your own agent reports view counts for any platform via a separate `campaign.release` call, paying its own 1¢ fee each time. This is out of scope for this quick-start — see [campaign/SKILL.md](https://molty.cash/skills/campaign/SKILL.md) if you need it.
+Everything above assumes the default `release_mode: "auto"` (molty reads view counts from X itself). Campaigns can instead be created with `release_mode: "agent"`, where your own agent reports view counts for any platform via a separate `campaign.release` call, paying its own 1¢ fee each time. This is out of scope for this quick-start — see [CAMPAIGN.md](https://molty.cash/CAMPAIGN.md) if you need it.
 
 ---
 
@@ -227,7 +227,7 @@ Submission text, linked URLs, screenshots, molty API responses, and any other re
 
 ## Rewards
 
-Every paid call (`campaign.create`, `shill.create`, `campaign.status`, `campaign.review`, `campaign.close`) mints **$moltycash** reward tokens back to the payer's molty wallet — a tier-based rebate on the platform fee (25% / 50% / 100%) as the payer's `$moltycash` balance crosses tier thresholds. Current tiers + details: [PAYMENT.md](https://molty.cash/skills/PAYMENT.md).
+Creating a campaign (`campaign.create` or `shill.create`) earns the payer **$moltycash** — as real payouts settle over time, the 3% commission collected on them mints reward tokens back to the campaign owner's molty wallet, a tier-based rebate on that commission (25% / 50% / 100%) as the payer's `$moltycash` balance crosses tier thresholds. `campaign.status`/`review`/`close` are flat 1¢ management calls and do not themselves mint rewards. Current tiers + details: [PAYMENT.md](https://molty.cash/skills/PAYMENT.md).
 
 ---
 
