@@ -64,17 +64,27 @@ The ledger holds AZL. Two supported intake paths exist:
 First require `paymentGateway.intakePaused() == false`. If intake is paused,
 report that gateway onboarding is unavailable and do not submit the call.
 
-1. Quote expected AZL output and select a nonzero `minAzlOut`.
+1. Quote expected AZL output and select a nonzero `minAzlOut` within the
+   user's confirmed slippage bound.
 2. Approve the exact USDC input to manifest `paymentGateway`.
-3. Call `paymentGateway.fundWithUsdc(exactUsdcIn,minAzlOut,deadline)`.
-4. Set `deadline` no more than ten minutes ahead.
-5. Verify `depositVault.deposits(wallet)` increased.
+3. Locally decode the Bankr-prepared approval and gateway transactions
+   immediately before submission. Require chain `8453`, pinned targets and
+   selectors, exact token/spender/input/output/deadline arguments, no extra or
+   reordered transactions, and zero unexpected native value.
+4. Call `paymentGateway.fundWithUsdc(exactUsdcIn,minAzlOut,deadline)`, with a
+   deadline no more than ten minutes ahead.
+5. Wait for a mined successful receipt and verify the expected gateway event
+   plus `depositVault.deposits(wallet)` credit. A hash or balance-only check is
+   insufficient.
 
 ### ETH intake
 
-First require `paymentGateway.intakePaused() == false`. Then call
-`paymentGateway.fundWithEth(minAzlOut,deadline)` with the exact ETH value and
-verify the deposit balance increased.
+First require `paymentGateway.intakePaused() == false`. Locally decode the
+prepared transaction and require the pinned chain, gateway target and
+selector, exact `minAzlOut` and deadline, exact ETH value, and no extra or
+reordered calls. Call `paymentGateway.fundWithEth(minAzlOut,deadline)`, wait
+for a mined successful receipt, and verify the expected gateway event plus
+deposit-ledger credit.
 
 The gateway may be paused. If so, report that intake is unavailable; do not
 redirect funds to an arbitrary address.
@@ -103,8 +113,11 @@ Show the user:
 - current oracle-priced collateral and fee quote
 - target `taskRegistry`
 
-After `post`, publish public scope through `taskScopeRegistry.publish` only if
-the user selected open discovery.
+After `post`, wait for a mined successful receipt and verify the expected task
+creation event and `POSTED` state. Publish public scope through
+`taskScopeRegistry.publish` only if the user selected open discovery; locally
+decode that prepared transaction, then wait for its mined receipt and verify
+`scopeOf(taskId)` equals the confirmed scope.
 
 ### Claim
 
@@ -134,24 +147,40 @@ debits. Claim does not fund task escrow.
 1. Require caller is poster and state is `CLAIMED` or `ACTIVE`.
 2. Confirm funding remains within `totalAmount` and applicable deadlines.
 3. Approve the exact AZL amount to manifest `escrowVault`.
-4. Call `taskRegistry.fund(taskId,amount)`.
-5. Full cumulative funding automatically changes `CLAIMED` to `ACTIVE`.
+4. Locally decode every prepared approval and funding transaction immediately
+   before submission. Require the pinned chain, exact targets/selectors, token,
+   spender, task ID, amount, ordering, and zero unexpected native value.
+5. Call `taskRegistry.fund(taskId,amount)`.
+6. Wait for a mined successful receipt and verify the expected funding event,
+   escrow accounting, and `CLAIMED -> ACTIVE` transition when fully funded.
 
 ## 7. Delivery and settlement
 
 Worker:
 
-1. Share durable artifact and evidence references offchain.
-2. Call `markDelivered(taskId)` before the task deadline.
+1. Prepare a minimal redacted preview of any artifact or evidence references
+   to be sent offchain. Require explicit user confirmation before sharing
+   private URLs, personal data, locations, credentials, unreleased assets,
+   internal task details, or dispute evidence.
+2. Call `markDelivered(taskId)` before the task deadline only after locally
+   decoding the prepared transaction and validating its chain, target,
+   selector, task ID, and value. Wait for a mined successful receipt and
+   verify the delivery event, task ID, and nonzero `deliveredAt`.
 
 Poster:
 
-- call `release(taskId,amount)` for a partial payout, or
-- call `complete(taskId)` to release all remaining funded AZL.
+- locally decode and validate the prepared `release(taskId,amount)` or
+  `complete(taskId)` transaction, then wait for a mined successful receipt and
+  verify the expected settlement event, escrow accounting, and task state;
+- do not report success or initiate another action from a submitted hash alone.
 
 `markDelivered` does not transfer funds and does not change task state.
-If the outcome is contested, a party may call `openDispute` with a nonzero hash
-of durable evidence while the contract's dispute window permits it.
+If the outcome is contested, preview and confirm any evidence disclosure first,
+then locally validate and submit `openDispute` with a nonzero hash of durable
+evidence. Wait for a mined successful receipt and verify the dispute event and
+`DISPUTED` transition. Apply the same decode, receipt, event, and state gates
+to `claim`, `cancel`, and `expire`; do not begin a follow-up action until the
+prior transition is verified.
 
 ## Confirmation template
 
