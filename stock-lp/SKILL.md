@@ -263,6 +263,10 @@ confirmation.**
    `minStakeTimes(pool)` live — the early-unstake penalty is a 100% CLIFF
    on the stint's emissions (observed 300s in Aug 2026, was 10s earlier —
    governance moves it). Respect it in your own timing (§6).
+7. **Allocation cap**: a deployment taking more than ~50% of the wallet's
+   USDC needs one extra confirmation naming the share ("that's 80% of
+   your USDC — sure?"). Not a block — their money; make the
+   concentration visible once.
 
 **Sequence** (user's wallet holds USDC; each step confirmed before the
 next):
@@ -284,8 +288,8 @@ next):
    `deposit(tokenId)`. If fees win, done — the NFT stays in the wallet.
 6. Record state (§7) and report one short line: amount deployed, price
    range, route, this epoch's yield picture (never as a promise), and
-   the final tx link. If no manage automation exists yet, offer §11
-   (and the §12 dashboard) in the same breath — one line, no lecture.
+   the final tx link. If no manage automation exists yet, offer §12
+   (and the §13 dashboard) in the same breath — one line, no lecture.
 
 ## 6. Route: staked (emissions) vs unstaked (fees)
 
@@ -325,7 +329,8 @@ state over that read.
 Keep a small state file (e.g. `~/.stock-lp/state.json`):
 
 ```json
-{ "positions": [ { "market": "NVDA", "tokenId": "123456",
+{ "compound": "sell",
+  "positions": [ { "market": "NVDA", "tokenId": "123456",
     "entryUsd": 500.00, "enteredAt": "2026-08-18T14:00:00Z",
     "lastMintAt": "…", "recenters": [] } ] }
 ```
@@ -342,7 +347,7 @@ ESTIMATED at current value, tell the user loudly, and ask for the real
 entry figure. Never let a lost file make the book lie — **the chain is
 the memory; the file is a cache.**
 
-Once the §12 dashboard app exists, the basis store of record is its
+Once the §13 dashboard app exists, the basis store of record is its
 `recordEntry` KV — same two guarded fields, same recovery rules; keep
 any file only as a secondary cache.
 
@@ -377,12 +382,15 @@ For each recorded position:
    clearly crossed; otherwise HOLD. Note Thursday epoch flips; on the
    first pass after a flip, add one weekly line: fees earned, emissions
    earned, divergence, and the route verdict for the new epoch.
-   **Compound**: while staked, when `earned()` is ≥ ~$10 of AERO,
-   `getReward(tokenId)` and sell it via the main SwapRouter (2% minOut
-   floor) — rewards land as USDC instead of riding AERO. One report
-   line. Below the threshold, don't churn.
+   **Compound**: only per the state file's `compound` preference, set
+   with the user at automation setup (§12). `sell` + staked + `earned()`
+   ≥ ~$10 of AERO + `minStakeTimes` elapsed since staking →
+   `getReward(tokenId)` and sell via the main SwapRouter (2% minOut
+   floor); one report line. `hold` or unset → leave it accruing (any
+   unstake claims it anyway). Below the threshold, don't churn. Never
+   auto-sell an asset the user hasn't consented to selling.
 4. **Out of range** → the position earns zero on either route. Exit to
-   position-closed (§10 steps 1–3, keep the tokens), then re-enter with
+   position-closed (§11 steps 1–3, keep the tokens), then re-enter with
    a fresh band — but only through BOTH brakes:
    - **Cost hurdle**: fees + emissions earned since last mint must be
      ≥ 2× the estimated re-entry cost (gas ≈ cents on Base + pool fee on
@@ -400,7 +408,7 @@ For each recorded position:
 6. **Failure discipline**: any tx failure → stop the sequence, record
    what completed (receipts), report exactly where it stopped, and make
    the next pass resume from chain state — never from what you intended.
-7. **Dashboard sync**: if the §12 app exists, end the pass by running
+7. **Dashboard sync**: if the §13 app exists, end the pass by running
    its `refreshPositions` script (`run_app_script`) so the dashboard
    shows what this pass just saw and did — passing
    `{automation: {runsRemaining, expiresAt}}` read from
@@ -420,13 +428,13 @@ P&L        = value − entry basis, decomposed as:
 ```
 
 - Never promise a yield or annualize one as if it were fixed. The only
-  forward-looking number allowed is the §9b projected APR, always
+  forward-looking number allowed is the §10 projected APR, always
   labeled "at this epoch's rate" / "resets Thursday".
 - Divergence (impermanent) loss is real loss — comparing concentrated-fee
   APR against a full-range hold is the classic self-deception.
 - Value emissions at AERO **spot at report time**, labeled as such.
 
-## 9b. Portfolio overview — "how are my positions doing?"
+## 10. Portfolio overview — "how are my positions doing?"
 
 Any variant of "how's my LP / position / portfolio doing?" gets the same
 compact report — built from one fresh manage-pass-style read (§8 step 1),
@@ -455,7 +463,7 @@ Example shape (match it, don't pad it):
 > re-entry waiting on the cost hurdle.
 > Total: $2,220, +$26 net. Emissions reset Thursday.
 
-## 10. Exit (user asks, or a guardrail forces it)
+## 11. Exit (user asks, or a guardrail forces it)
 
 1. If staked: `gauge.withdraw(tokenId)` — also claims AERO.
 2. `decreaseLiquidity(tokenId, fullLiquidity)`.
@@ -467,7 +475,7 @@ Example shape (match it, don't pad it):
 6. Report final cash, and the full decomposed P&L for the position's
    life.
 
-## 11. Automation — set up the manage pass, don't just describe it
+## 12. Automation — set up the manage pass, don't just describe it
 
 The manage pass (§8) only protects the user if it actually runs. After
 every successful entry, if no manage automation exists, offer it in one
@@ -507,16 +515,29 @@ Platform rules that bite:
 - Scheduled results land in the Automations panel, not as a push. If the
   user wants pings and has Telegram linked, pass
   `notificationPlatform: "telegram"`; otherwise skip it.
+- In the same setup message, get compound consent and record it:
+  "I'll also auto-claim and sell earned AERO to USDC once it tops $10 —
+  say 'hold AERO' to keep it instead." Write `compound: sell|hold` to
+  the state file (§7); the pass obeys it (§8). Never default to selling
+  without this line having been said.
+- **Crash brake** (offer for AERO positions, or on request): one extra
+  automation with `conditionType: "price"`, `priceTriggerToken` = the
+  position's token, `priceChain: "base"`, `pricePercentage: -0.15`
+  (decimal = −15% from now), command = the same manage-pass command —
+  fires a pass immediately instead of waiting out the hour; the hourly
+  cadence is the weak point in a fast move. Price triggers are
+  one-shot: if it fired, re-arm it in chat (a pass can't — recursion
+  block).
 - After creating, offer the smoke test: run one manage pass right now
   in chat instead of waiting an hour.
 - "Stop managing" = `cancel_automations` AND the question "exit the
   positions too, or leave them unmanaged?" — cancelling the watcher does
   not exit the book; say so.
 
-## 12. Dashboard app — the position screen
+## 13. Dashboard app — the position screen
 
 Offer once, right after the first successful entry (same breath as the
-§12 offer). Also build it when the user asks to see their
+automation offer, §12). Also build it when the user asks to see their
 positions/dashboard. The platform's app-authoring directive is the
 authority on app mechanics — it auto-loads when you build; if apps tools
 aren't bound, `request_additional_tools("apps create update run
@@ -570,8 +591,8 @@ create — fix what fails):
 
 Freshness: `set_app_schedule` → `refreshPositions` every 30 minutes
 (`*/30 * * * *`). That cron is a direct script run — cheap, no LLM, and
-it NEVER trades; §11 owns decisions. The page also gets a Refresh
-button invoking `refreshPositions`.
+it NEVER trades; the §8 manage pass owns decisions. The page also gets
+a Refresh button invoking `refreshPositions`.
 
 Page: one self-contained HTML document, inline CSS/JS, dark, no
 external assets. Header: total value, "updated Xm ago" from
@@ -588,19 +609,20 @@ automation expires soon — say 'renew my LP automation'". Empty state:
 
 After creating: run `refreshPositions` once via `run_app_script` (so
 the first open isn't blank), then give the user the app URL from the
-tool result. Note `dry_run_app_script` has no persistent KV and no
-secrets — test pure chain reads there; verify KV wiring with
-`run_app_script` after create.
+tool result. (`dry_run_app_script` has no persistent KV — verify KV
+wiring with a real `run_app_script`.)
 
-## 13. What this skill refuses to do
+## 14. What this skill refuses to do
 
 - Enter a pool that fails ANY gate in §5 — including "the user is
   excited". Report the failing gate and the number it needs.
 - Trade without a fresh real quote (entry/re-entry) — the NAV gate fails
   CLOSED.
-- Promise or guarantee yields. The only projection allowed is the §9b
+- Promise or guarantee yields. The only projection allowed is the §10
   form, explicitly labeled "at this epoch's rate".
+- Auto-sell without consent: compounding sells AERO only after the §12
+  setup line was said and `compound: sell` recorded.
 - Silence a failure: every skipped step, estimated basis, degraded input,
   or stopped sequence is reported to the user in plain language.
 - Trade from the dashboard cron: `refreshPositions` reads and displays,
-  never transacts. Only the §11 manage pass (or the user in chat) acts.
+  never transacts. Only the §8 manage pass (or the user in chat) acts.
