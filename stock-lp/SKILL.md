@@ -1,6 +1,6 @@
 ---
 name: stock-lp
-description: LP tokenized stocks onchain — range-LP Coinbase tokenized equities (NVDA, AAPL, GOOGL, META) and AERO/USDC on Aerodrome Slipstream (Base) for trading-fee + AERO emission yield. Use when the user wants to LP stocks or Aerodrome pools on Base, open/recenter/exit a Slipstream position, check pool status, NAV, or yields, compare the staked (emissions) vs unstaked (fees) route, or run scheduled LP management passes. Sets up an hourly manage automation and builds a live position dashboard app on request. Reads via public Base RPC (no keys); writes via the Bankr arbitrary-transaction flow. NOT for perps, spot trading, or Uniswap.
+description: LP tokenized stocks onchain — range-LP Coinbase tokenized equities (NVDA, AAPL, GOOGL, META) and AERO/USDC on Aerodrome Slipstream (Base) for trading-fee + AERO emission yield. Use when the user wants to LP stocks or Aerodrome pools on Base, open/recenter/exit a Slipstream position, check pool status, NAV, or yields, get a portfolio overview ("how are my LP positions doing?") with P&L and projected APR, compare the staked (emissions) vs unstaked (fees) route, or run scheduled LP management passes. Sets up an hourly manage automation and builds a live position dashboard app on request. Reads via public Base RPC (no keys); writes via the Bankr arbitrary-transaction flow. NOT for perps, spot trading, or Uniswap.
 ---
 
 # stock-lp — LP onchain equities on Aerodrome (Base)
@@ -327,6 +327,20 @@ Once the §12 dashboard app exists, the basis store of record is its
 `recordEntry` KV — same two guarded fields, same recovery rules; keep
 any file only as a secondary cache.
 
+**User memory file.** Where the runtime gives you a persistent user
+memory file (the Bankr console does), keep ONE line in it about this
+book — future sessions and automation runs start with no conversation
+history, and the memory line is how they learn positions exist at all:
+
+> stock-lp: active Aerodrome LP positions on Base — NVDA #123456
+> (staked), AAPL #123789 (unstaked); basis in ~/.stock-lp/state.json;
+> hourly manage automation active. Manage with the stock-lp skill.
+
+Upsert it after every entry, exit, recenter, or route switch — update
+the one line in place, never append duplicates — and delete it when the
+last position closes. The memory line is a POINTER, not a store: basis
+lives in the state file / app KV, and the chain stays the truth.
+
 ## 8. MANAGE PASS — the cron procedure
 
 Designed for a scheduled automation. Recommended cadence: every 30–60
@@ -377,11 +391,41 @@ P&L        = value − entry basis, decomposed as:
              fees earned + emissions earned − divergence loss − costs
 ```
 
-- Never annualize an epoch or promise a yield. Report "this epoch's pot ÷
-  staked TVL, resets Thursday".
+- Never promise a yield or annualize one as if it were fixed. The only
+  forward-looking number allowed is the §9b projected APR, always
+  labeled "at this epoch's rate" / "resets Thursday".
 - Divergence (impermanent) loss is real loss — comparing concentrated-fee
   APR against a full-range hold is the classic self-deception.
 - Value emissions at AERO **spot at report time**, labeled as such.
+
+## 9b. Portfolio overview — "how are my positions doing?"
+
+Any variant of "how's my LP / position / portfolio doing?" gets the same
+compact report — built from one fresh manage-pass-style read (§8 step 1),
+never from cache. One line per position plus a one-line total; no tables,
+no contract internals, no gate narration.
+
+Per position: market, current value, P&L vs basis (§9 math; keep the full
+decomposition for follow-ups), IN or OUT of range with the band in
+dollars, route in plain words, and **projected APR at current rates** —
+annualize the position's own run-rate and divide by its current value:
+
+- staked: `yourL ÷ stakedLiquidity × pot` (this epoch's emissions)
+- unstaked: trailing-24h fee capture × (1 − skim)
+
+Always label it "at this epoch's rate" (emissions reset Thursday; fee
+run-rates move with volume) — it is a measurement of now, not a promise.
+Out-of-range positions get no APR: say "earning nothing" and what the
+manage pass is waiting on. Basis marked ESTIMATED (§7) is flagged in the
+same line.
+
+Example shape (match it, don't pad it):
+
+> NVDA: $1,240 (+$38, +3.2%), in range $168–$182, earning AERO — ~41%
+> APR at this epoch's rate.
+> AAPL: $980 (−$12, −1.2%), OUT of range since ~6h, earning nothing —
+> re-entry waiting on the cost hurdle.
+> Total: $2,220, +$26 net. Emissions reset Thursday.
 
 ## 10. Exit (user asks, or a guardrail forces it)
 
@@ -520,7 +564,8 @@ secrets — test pure chain reads there; verify KV wiring with
   excited". Report the failing gate and the number it needs.
 - Trade without a fresh real quote (entry/re-entry) — the NAV gate fails
   CLOSED.
-- Promise, project, or annualize yields.
+- Promise or guarantee yields. The only projection allowed is the §9b
+  form, explicitly labeled "at this epoch's rate".
 - Silence a failure: every skipped step, estimated basis, degraded input,
   or stopped sequence is reported to the user in plain language.
 - Trade from the dashboard cron: `refreshPositions` reads and displays,
