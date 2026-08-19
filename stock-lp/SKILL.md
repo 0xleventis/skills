@@ -494,8 +494,12 @@ Example shape (match it, don't pad it):
 The manage pass (§8) only protects the user if it actually runs. After
 every successful entry, if no manage automation exists, offer it in one
 line: "Want me to check this position every hour and recenter when
-needed?" If the user says yes — or asked for managed/automated LP
-anywhere in the conversation — create it with `automate_agent_command`:
+needed?" Strictly OPT-IN — like the dashboard (§13), it is created only
+on a clear yes in this conversation (asking for "managed" or "automated"
+LP counts as yes). A no stands: don't re-offer on later entries; say
+once that "manage my LPs automatically" turns it on any time, and
+chat-driven passes ("check my LPs") always work without it. On yes,
+create it with `automate_agent_command`:
 
 - `humanReadableName`: `stock-lp manage pass`
 - `conditionType`: `"time"`, `schedule`: `"0 * * * *"` (hourly, UTC)
@@ -551,8 +555,9 @@ Platform rules that bite:
 ## 13. Dashboard app — the position screen
 
 Offer once, right after the first successful entry (same breath as the
-automation offer, §12). Also build it when the user asks to see their
-positions/dashboard. The platform's app-authoring directive is the
+automation offer, §12) — and like it, strictly OPT-IN: build only on a
+clear yes, or when the user asks to see their positions/dashboard. A no
+stands; mention once that "make me a dashboard" works any time later. The platform's app-authoring directive is the
 authority on app mechanics — it auto-loads when you build; if apps tools
 aren't bound, `request_additional_tools("apps create update run
 schedule share")`, and load `read_system_directive(["apps-authoring"])`
@@ -636,6 +641,8 @@ wiring with a real `run_app_script`.)
   form, explicitly labeled "at this epoch's rate".
 - Auto-sell without consent: compounding sells AERO only after the §12
   setup line was said and `compound: sell` recorded.
+- Create an automation or an app unbidden: both are offered once and
+  built only on the user's yes (§12, §13).
 - Silence a failure: every skipped step, estimated basis, degraded input,
   or stopped sequence is reported to the user in plain language.
 - Trade from the dashboard cron: `refreshPositions` reads and displays,
