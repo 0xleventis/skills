@@ -444,10 +444,24 @@ no contract internals, no gate narration.
 Per position: market, current value, P&L vs basis (§9 math; keep the full
 decomposition for follow-ups), IN or OUT of range with the band in
 dollars, route in plain words, and **projected APR at current rates** —
-annualize the position's own run-rate and divide by its current value:
+one division: annual run-rate ÷ current value (the §9 value line —
+simulations + loose balances — never the entry basis). Two ways to the
+run-rate; prefer measured, fall back to pot-share for positions too
+fresh to have a window:
 
-- staked: `yourL ÷ stakedLiquidity × pot` (this epoch's emissions)
-- unstaked: trailing-24h fee capture × (1 − skim)
+- **Measured**: earnings delta over a known window, annualized.
+  Staked: Δ`earned()` × AERO spot. Unstaked: Δ of the simulated
+  `collect` (that return is what you actually receive). Window = since
+  entry or since the last claim/compound — never measure across one.
+- **Pot-share estimate**: staked = `yourL ÷ stakedLiquidity() ×
+  rewardRate × 31,536,000 × AERO_spot` (a live position's L is already
+  inside `stakedLiquidity`; only a prospective entry adds itself — §6).
+  Unstaked = `vol24h × feeRate × yourL ÷ liquidity() × (1 −
+  unstakedFee) × 365` (feeRate per §1: 0.05% equities, 0.3% AERO).
+
+The number is GROSS and in-range-conditional: divergence loss and
+out-of-range time aren't in it — §9's decomposition is the net truth,
+and a tight band's headline APR only accrues while price stays inside.
 
 Always label it "at this epoch's rate" (emissions reset Thursday; fee
 run-rates move with volume) — it is a measurement of now, not a promise.
