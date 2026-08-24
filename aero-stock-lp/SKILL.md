@@ -40,6 +40,11 @@ outcome. Rules:
   at $298 – $322? yes/no" — `plan` emits exactly this line), then execute
   the whole sequence without narrating each step. Report one final line
   with the position and a single tx link.
+- Set the time expectation once, right after the user confirms: opening
+  (or exiting) a position takes several onchain transactions submitted
+  one at a time, so it usually takes 2–3 minutes end to end. One line —
+  "Opening your position now — this takes a few onchain steps, usually
+  2–3 minutes" — so the quiet stretch reads as normal, not stuck.
 - Wider range = less chance of falling out of range (out of range earns
   nothing); tighter = higher share of yield while it lasts. Default to
   `standard` width without asking; explain only if the user asks about
