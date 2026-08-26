@@ -6,17 +6,16 @@
   "demo": {
     "title": "stake.txt",
     "language": "text",
-    "code": "You: What Pantheon vaults can I stake in?\nAgent: (lists live Base vaults from the Pantheon registry)\nYou: Stake 100,000 WOLF\nAgent: (relays the mandatory lock/fee disclosure, waits for your explicit yes, then exact-amount approve + stake — never an unlimited approval)"
+    "code": "You: What Pantheon vaults can I stake in?\nAgent: (lists live Base and Robinhood Chain vaults from the Pantheon registry)\nYou: Stake 100,000 WOLF\nAgent: (checks the vault address against the one pinned in the skill, relays the mandatory lock/fee disclosure, waits for your explicit yes, then exact-amount approve + stake — never an unlimited approval)"
   },
   "setup": [
-    "Install the skill from the canonical Pantheon repo (command below)",
+    "Install the pantheon-staking skill (command below)",
     "Ask: What Pantheon vaults can I stake in?",
     "Stake, view your position, and claim rewards by conversation — exits are deliberately web-app-only"
   ],
   "install": {
-    "type": "external",
-    "provider": "Pantheon",
-    "command": "install the pantheon-staking skill from https://github.com/PantheonVaults/pantheon-skill",
-    "reference": "https://github.com/PantheonVaults/pantheon-skill"
+    "type": "bankr",
+    "repoPath": "pantheon-staking",
+    "command": "install the pantheon-staking skill from https://github.com/BankrBot/skills/tree/main/pantheon-staking"
   }
 }

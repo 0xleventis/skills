@@ -35,7 +35,7 @@ The lock runs to the start of the **7th** month after the stake month because th
 
 The claim fee is read from the contract as `feePercent()` and was `5` on 2026-08-07. It is operator-adjustable, so prefer reading it live over hardcoding.
 
-## Exit rules — why this agent does not unstake (v1)
+## Exit rules — why this agent does not unstake
 
 There is no single `unstake()` function. A normal exit is two calls: `requestUnstake(token)`, then `finalizeUnstake(token)` at least 7 days later.
 
@@ -44,5 +44,5 @@ There is no single `unstake()` function. A normal exit is two calls: `requestUns
 - A **7-day cooling-off** separates `requestUnstake` from `finalizeUnstake`; calling early reverts `CoolingOffNotFinished()` (`0xa79d0533`).
 - `emergencyExit` bypasses the cliff and cooling-off and costs **20% of principal** (again split 50/50: 10% burned, 10% treasury). Its reward forfeit is **conditional**: it burns the exiter's share only of reward funding that is still within its distribution cliff. Funding that has already started distributing is not burned — it follows the same redistribute-to-remaining-stakers path as above. On a pool whose funding is past cliff, `emergencyExit` burns **zero** rewards and costs only the 20% principal. Do not describe it as an unconditional reward burn.
 - After a `requestUnstake`, `emergencyExit` is blocked.
-- The safe order is: claim first (from the claim-open date), then unstake. The Pantheon web app enforces this ordering; chat-driven exits are excluded from this skill until v2.
+- The safe order is: claim first (from the claim-open date), then unstake. The Pantheon web app enforces this ordering; chat-driven exits are excluded from this skill, on every chain, with no version planned to add them.
 - If a user insists: state the rules above, link https://pantheonvaults.com, and do not execute any exit function.

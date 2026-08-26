@@ -47,7 +47,7 @@ Selectors, if you need to match them: `stake` `0x946debd5` · `accruedReward` `0
 ERC-20 approve first: `approve(0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb, exactAmount)` on the token contract.
 
 Rules:
-- `lockMonths` is always `6` — the contract rejects every other value. `autoRestakeOptIn` is always `false` (v1 policy).
+- `lockMonths` is always `6` — the contract rejects every other value. `autoRestakeOptIn` is always `false` (skill policy).
 - In `stake`, the **amount is the third argument**, after `lockMonths`. Getting this order wrong is the easiest way to send a wrong-sized transaction.
 - Amounts are raw units (`human * 10^decimals`, decimals from the registry).
 - Before staking, check `pools(token).active == true`; if false, refuse — the vault is not live.
@@ -100,7 +100,8 @@ An agent that enumerated the array on the FADED pool would report USDC only and 
 **Which error you get on a pool that doesn't exist depends on the call.** `stake` checks the pool first and reverts `InvalidPool` (`0x2083cd40`). `claimReward` checks the *position* first, so an unknown pool reverts `NoActiveStake` (`0xfb348942`), not `InvalidPool`. Don't read `NoActiveStake` from a claim as proof the vault is fine.
 
 The last two rows were added 2026-08-25 from the Robinhood Chain pack, where both were observed
-live via `eth_call`. They are carried to Base on the strength of the shared audited lineage and the
+live via `eth_call`. They are carried to Base on the strength of the shared contract lineage (byte-identical ex-metadata
+across chains, proven in `staking-contract-rh.md`) and the
 recomputed selectors above — `CliffNotPassed` is declared in the deployed Base ABI, and
 `Error(string)` `0x08c379a0` is the ERC-20 standard string revert, not a vault error at all. Flagged
 as carried-over rather than presented as separately measured on Base.

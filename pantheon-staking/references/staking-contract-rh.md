@@ -6,21 +6,22 @@ Live implementation behind the proxy: `0xb43e88d96c1c99c7949a32b4996b84181126176
 token and fee reads at block **45,334,150**, and the implementation, arity, selector and gas
 re-checks at block **45,414,502** after the registry shipped.
 
-**Read this first if you already know the Base pack.** RH is the same audited contract at an
+**Read this first if you already know the Base pack.** RH is the same contract at an
 *older* version. Base upgraded to V8 on 2026-08-24; **RH did not**. Two consequences that matter
 more than anything else on this page:
 
 1. **`poolRewardTokens` is COMPLETE on RH** — the exact opposite of Base. The long warning in the
    Base pack does not apply here. Verified below.
-2. **The RH vault is controlled by a single EOA**, not a multisig. Base's is a 2-of-6 Safe.
+2. **Both chains' vaults are controlled by 2-of-6 multisigs.** RH was migrated from a single EOA
+   on 2026-08-26; see the custody note at the end of this file.
 
-## Audited lineage — proven, not asserted
+## Shared lineage — proven, not asserted
 
 The RH implementation runtime is **byte-identical (ex-metadata) to the Base V7 implementation**
 `0xe0C448B467dB7C65Ed8A0827e057D81D526919b2` — 22,159 bytes on both, same solc metadata trailer
 (`64736f6c634300081c` → 0.8.28). It is **not** the Base V8 build (24,103 bytes).
 
-So RH runs the same audited code Base ran before the PRD-085 upgrade. The V8-only delegated-staking
+So RH runs the same code Base ran before the PRD-085 upgrade. The V8-only delegated-staking
 verbs are confirmed absent from the RH runtime: `stakeOnBehalf` (`0x45f54bfd`),
 `addToStakeOnBehalf` (`0x9b316ed6`), `initializeV5` (`0x16e1f015`), `STAKER_FOR_ROLE`
 (`0x0660bbee`).
@@ -59,7 +60,7 @@ nothing here.
 
 Rules — unchanged from Base, all confirmed live:
 - `lockMonths` is always `6`; `12` reverts `InvalidLockMonths` (proven).
-- `autoRestakeOptIn` always `false` (v1 policy). **The contract does not enforce this on RH** —
+- `autoRestakeOptIn` always `false` (skill policy). **The contract does not enforce this on RH** —
   passing `true` is accepted by the vault and fails later at the token transfer. The policy is the
   skill's to hold, not the chain's.
 - Amount is the **third** argument, after `lockMonths`.
@@ -290,13 +291,24 @@ today.**
    harmless; expect it to do nothing useful before that date, and quote the date rather than
    letting the user hit the revert.
 
-### One thing that is not a verb problem but belongs in any risk note
+### Custody note
 
-**The RH vault is controlled by a single EOA.** `owner()` is
-`0x9Eba2eCD3c07f0d693105a112ae3404F5513747A`, which has **no code** — an EOA, not a Safe. The
-ProxyAdmin `0x13f4997674…e24a` is owned by that **same EOA**, so one key can both administer the
-vault and **upgrade its implementation**. Base's equivalent is a 2-of-6 multisig.
+**The RH vault is controlled by a 2-of-6 multisig.** As of **2026-08-26**:
 
-This does not make any v1 verb technically unsafe, and the skill should not editorialise about it.
-But it is a material difference in custody posture between the two chains, and whoever signs off on
-extending the skill to RH should know it rather than discover it.
+| Role | Holder |
+|---|---|
+| Vault `owner()` + all AccessControl roles | `0x8da5186814b46EAcB9083040A949Fe92e9884373` (Safe, 2-of-6) |
+| ProxyAdmin `owner()` — upgrade authority | `0x8da5186814b46EAcB9083040A949Fe92e9884373` (same Safe) |
+| `treasury()` | `0x1f9c5017BE7ab490d29CA6cd4BDEb364C94D6177` (Safe, 2-of-6) |
+
+Before that date both the vault and the ProxyAdmin were owned by a single EOA
+(`0x9Eba2eCD3c07f0d693105a112ae3404F5513747A`), meaning one key could administer the vault and
+upgrade its implementation. That was migrated deliberately; Base's equivalent Safe is
+`0x47b22B1c84AD1A41396aa20A26f4832C51553872`, also 2-of-6.
+
+Both chains are now equivalent in custody posture: no single key can administer or upgrade either
+vault. All three values above are readable on-chain and should be checked rather than believed —
+`owner()` on the vault, `owner()` on the ProxyAdmin, `treasury()` on the vault.
+
+The skill should not editorialise about custody. Answer the question if a user asks, cite the
+addresses, and tell them how to verify it themselves.
