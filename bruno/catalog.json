@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "slug": "bruno",
+  "provider": "Bruno",
+  "providerUrl": "https://www.hoodbrunos.xyz",
+  "logo": null,
+  "demo": {
+    "title": "bruno-launch-quickstart.sh",
+    "language": "bash",
+    "code": "npm install -g bruno-launch\n\n# BANKR_API_KEY is read from your existing `bankr login` session\nbruno-launch --platform o1exchange --name \"Popo\" --symbol POPO --description \"the frog\"\n\n# pools.fun and Pons need a free Pinata key to host the image/metadata\nexport PINATA_JWT=eyJ...\nbruno-launch --platform poolsfun --name \"Popo\" --symbol POPO --image ./logo.png"
+  },
+  "setup": [
+    "Install: `install the bruno skill from https://github.com/BankrBot/skills/tree/main/bruno`",
+    "Install the CLI: `npm install -g bruno-launch`",
+    "Make sure `bankr login` has already been run (BANKR_API_KEY is read from that session)",
+    "For pools.fun or Pons only: export PINATA_JWT (free key at https://app.pinata.cloud/developers/api-keys)",
+    "Source: https://gitlab.com/leventis0x/bruno-skill"
+  ],
+  "install": {
+    "type": "bankr",
+    "repoPath": "bruno",
+    "command": "install the bruno skill from https://github.com/BankrBot/skills/tree/main/bruno"
+  }
+}
