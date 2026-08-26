@@ -25,19 +25,22 @@ battle-tested calldata-building logic for each platform; this skill's CLI vendor
 hands the resulting unsigned transaction to Bankr's Wallet API (`/wallet/submit`) to sign and
 broadcast.
 
-- **Source**: https://gitlab.com/leventis0x/bruno-skill
-- **npm**: https://www.npmjs.com/package/bruno-launch
+- **Source**: https://gitlab.com/leventis0x/bruno-skill (mirrored here under `scripts/`)
 
 ## Install
 
+The working script lives in this skill's own `scripts/` folder — no separate package to fetch.
+Install its one dependency (`viem`) once:
+
 ```bash
-npm install -g bruno-launch
+cd scripts && npm install
 ```
 
-Requires `bankr login` already done (see the `bankr` skill) — `bruno-launch` reads `BANKR_API_KEY`
-from the environment, same as the `bankr` CLI. For pools.fun or Pons specifically, also export
-`PINATA_JWT` (free key at https://app.pinata.cloud/developers/api-keys) — those two platforms host
-the token image/metadata via Pinata and this tool runs standalone, so it needs your own key.
+Requires `bankr login` already done (see the `bankr` skill) — `scripts/launch.mjs` reads
+`BANKR_API_KEY` from the environment, same as the `bankr` CLI. For pools.fun or Pons specifically,
+also export `PINATA_JWT` (free key at https://app.pinata.cloud/developers/api-keys) — those two
+platforms host the token image/metadata via Pinata and this tool runs standalone, so it needs your
+own key.
 
 ## Supported platforms
 
@@ -57,9 +60,9 @@ If asked for one of these, say so plainly rather than guessing or substituting a
 ## Usage
 
 ```bash
-bruno-launch --platform o1exchange --name "Popo" --symbol POPO
-bruno-launch --platform basedbid --name "Popo" --symbol POPO --description "..." --image ./logo.png
-bruno-launch --platform poolsfun --name "Popo" --symbol POPO --image https://example.com/logo.png
+node scripts/launch.mjs --platform o1exchange --name "Popo" --symbol POPO
+node scripts/launch.mjs --platform basedbid --name "Popo" --symbol POPO --description "..." --image ./logo.png
+node scripts/launch.mjs --platform poolsfun --name "Popo" --symbol POPO --image https://example.com/logo.png
 ```
 
 Flags: `--platform` (required, see alias table above), `--name` (required), `--symbol` (required),
