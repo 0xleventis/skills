@@ -1,0 +1,13 @@
+{
+  "name": "bruno-skill-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Launch a token on one of Bruno's Base/Robinhood Chain launchpads (o1.exchange, based.bid, pools.fun, Pons, ape.store) using your own Bankr wallet.",
+  "type": "module",
+  "scripts": {
+    "launch": "node launch.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  }
+}
