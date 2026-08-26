@@ -205,7 +205,9 @@ Every value below was read from the RH vault, and every one is **identical to Ba
 - After requesting an unstake there is a **7-day** wait before the principal can be withdrawn.
 - After exiting, the same wallet cannot stake that vault again for **7 days**.
 
-Treasury on RH is `0xaa850Ccf9b22EDcB50752d08d1bec6BE6262bcbb` — a *different* address from Base's.
+Treasury on RH is `0x1f9c5017BE7ab490d29CA6cd4BDEb364C94D6177` (Treasury Safe, 2-of-6) — a
+*different* address from Base's. It was an EOA until 2026-08-26; always read `treasury()` live
+rather than trusting this line.
 
 ## Revert codes — translate honestly, never guess
 
