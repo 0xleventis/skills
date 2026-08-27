@@ -23,7 +23,7 @@
 import { bankrWhoami, submitTxBankr } from "./lib/bankr.mjs";
 import { loadImage } from "./lib/image.mjs";
 import { basePublicClient, robinhoodPublicClient, BASE_CHAIN_ID, ROBINHOOD_CHAIN_ID } from "./lib/chains.mjs";
-import { checkSufficientBalance, formatEthShort } from "./lib/balanceCheck.mjs";
+import { checkSufficientBalance, checkGasCeiling, formatEthShort } from "./lib/balanceCheck.mjs";
 
 const PLATFORM_LABELS = {
   o1exchange: "o1.exchange",
@@ -112,6 +112,15 @@ async function main() {
   }
 
   if (buildOnly) {
+    const gasCeiling = checkGasCeiling(balanceCheck.gasEstimate);
+    if (!gasCeiling.withinCeiling) {
+      throw new Error(
+        `This ${PLATFORM_LABELS[platform]} launch needs ~${balanceCheck.gasEstimate.toLocaleString()} gas, which after bankrbot's own ~1.2x ` +
+        `safety buffer (~${gasCeiling.bufferedGas.toLocaleString()} gas) exceeds its ~${gasCeiling.ceiling.toLocaleString()} gas execution ceiling. ` +
+        `The call itself is valid on-chain — this is bankrbot's own infrastructure limit, not something this skill can work around. ` +
+        `${PLATFORM_LABELS[platform]}'s launch call is inherently this gas-heavy; there's currently no way to launch on it through bankrbot's sandbox.`
+      );
+    }
     console.log(JSON.stringify({
       to: tx.to,
       data: tx.data,
