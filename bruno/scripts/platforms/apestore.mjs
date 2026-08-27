@@ -55,16 +55,22 @@ export async function build({ walletAddress, name, symbol, description, imageBuf
     value: 0n,
     chainId,
     logoUrl: undefined,
-    async decodeTokenAddress(receipt) {
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== ROUTER_ADDRESS.toLowerCase()) continue;
-        try {
-          const decoded = decodeEventLog({ abi: ROUTER_ABI, topics: log.topics, data: log.data });
-          if (decoded.eventName === "CreateToken") return decoded.args.token;
-        } catch {}
-      }
-      return undefined;
-    },
-    pageUrl: (tokenAddress) => `https://robinhoodchain.blockscout.com/token/${tokenAddress}`,
+    decodeTokenAddress,
+    pageUrl,
   };
+}
+
+export async function decodeTokenAddress(receipt) {
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== ROUTER_ADDRESS.toLowerCase()) continue;
+    try {
+      const decoded = decodeEventLog({ abi: ROUTER_ABI, topics: log.topics, data: log.data });
+      if (decoded.eventName === "CreateToken") return decoded.args.token;
+    } catch {}
+  }
+  return undefined;
+}
+
+export function pageUrl(tokenAddress) {
+  return `https://robinhoodchain.blockscout.com/token/${tokenAddress}`;
 }

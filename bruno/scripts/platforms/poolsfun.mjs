@@ -110,17 +110,23 @@ export async function build({ walletAddress, name, symbol, description, imageBuf
     chainId,
     logoUrl,
     // launch() can revert with StartTickChanged() if the live price moves between quoting and confirming —
-    // caller (launch.mjs) should surface that clearly rather than treat it as an unknown failure.
-    async decodeTokenAddress(receipt) {
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) continue;
-        try {
-          const decoded = decodeEventLog({ abi: FACTORY_ABI, topics: log.topics, data: log.data });
-          if (decoded.eventName === "TokenLaunched") return decoded.args.token;
-        } catch {}
-      }
-      return undefined;
-    },
-    pageUrl: (tokenAddress) => `https://robinhoodchain.blockscout.com/token/${tokenAddress}`,
+    // caller should surface that clearly rather than treat it as an unknown failure.
+    decodeTokenAddress,
+    pageUrl,
   };
+}
+
+export async function decodeTokenAddress(receipt) {
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) continue;
+    try {
+      const decoded = decodeEventLog({ abi: FACTORY_ABI, topics: log.topics, data: log.data });
+      if (decoded.eventName === "TokenLaunched") return decoded.args.token;
+    } catch {}
+  }
+  return undefined;
+}
+
+export function pageUrl(tokenAddress) {
+  return `https://robinhoodchain.blockscout.com/token/${tokenAddress}`;
 }

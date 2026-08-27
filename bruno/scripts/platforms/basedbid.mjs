@@ -132,12 +132,21 @@ export async function build({ walletAddress, name, symbol, description, imageBuf
     value,
     chainId,
     logoUrl,
-    // based.bid's function returns the new token address directly, so simulate the call rather than
-    // decode an event — same reasoning as basedBidClient.ts.
-    async decodeTokenAddress() {
-      const simulated = await basePublicClient.call({ account: walletAddress, to: launch.address, data, value });
-      return simulated.data ? getAddress(`0x${simulated.data.slice(-40)}`) : undefined;
-    },
-    pageUrl: (tokenAddress) => `https://basescan.org/token/${tokenAddress}`,
+    decodeTokenAddress: () => decodeTokenAddress({ to: launch.address, data, value, walletAddress }),
+    pageUrl,
   };
+}
+
+// Needs {to, data, value, walletAddress} rather than just a receipt, unlike the other 4 platforms — see
+// the comment above: based.bid's function returns the new token address directly, so this simulates the
+// same call again rather than decoding an event. A separate post-execution step (e.g. bankrbot's own
+// sandbox, which builds the tx here but submits it with its own native tools outside the sandbox) needs to
+// pass those same values back in, since it won't have re-run build().
+export async function decodeTokenAddress({ to, data, value, walletAddress }) {
+  const simulated = await basePublicClient.call({ account: walletAddress, to, data, value });
+  return simulated.data ? getAddress(`0x${simulated.data.slice(-40)}`) : undefined;
+}
+
+export function pageUrl(tokenAddress) {
+  return `https://basescan.org/token/${tokenAddress}`;
 }

@@ -122,16 +122,25 @@ export async function build({ name, symbol, description, imageBuffer, imageConte
     value: quoteInfo.creationFee,
     chainId,
     logoUrl: pinned.imageUrl,
-    async decodeTokenAddress(receipt) {
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) continue;
-        try {
-          const decoded = decodeEventLog({ abi: FACTORY_ABI, topics: log.topics, data: log.data });
-          if (decoded.eventName === "Launched") return decoded.args.token;
-        } catch {}
-      }
-      return undefined;
-    },
-    pageUrl: (tokenAddress) => `https://o1.exchange/base/detail/${tokenAddress.toLowerCase()}?ca=${tokenAddress.toLowerCase()}`,
+    decodeTokenAddress,
+    pageUrl,
   };
+}
+
+// Standalone (doesn't need anything from build()) so a separate post-execution step — e.g. bankrbot's own
+// sandbox, which builds the tx here but submits it with its own native tools outside the sandbox — can
+// decode the result from just a receipt, without re-running build().
+export async function decodeTokenAddress(receipt) {
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) continue;
+    try {
+      const decoded = decodeEventLog({ abi: FACTORY_ABI, topics: log.topics, data: log.data });
+      if (decoded.eventName === "Launched") return decoded.args.token;
+    } catch {}
+  }
+  return undefined;
+}
+
+export function pageUrl(tokenAddress) {
+  return `https://o1.exchange/base/detail/${tokenAddress.toLowerCase()}?ca=${tokenAddress.toLowerCase()}`;
 }
