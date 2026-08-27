@@ -23,6 +23,7 @@
 import { bankrWhoami, submitTxBankr } from "./lib/bankr.mjs";
 import { loadImage } from "./lib/image.mjs";
 import { basePublicClient, robinhoodPublicClient, BASE_CHAIN_ID, ROBINHOOD_CHAIN_ID } from "./lib/chains.mjs";
+import { checkSufficientBalance, formatEthShort } from "./lib/balanceCheck.mjs";
 
 const PLATFORM_LABELS = {
   o1exchange: "o1.exchange",
@@ -97,6 +98,18 @@ async function main() {
     imageContentType,
     username,
   });
+
+  console.log(`Checking balance covers gas + fees with a safety margin...`);
+  const balanceCheck = await checkSufficientBalance({ chainId: tx.chainId, walletAddress, to: tx.to, data: tx.data, value: tx.value });
+  if (!balanceCheck.sufficient) {
+    const chainName = tx.chainId === BASE_CHAIN_ID ? "Base" : "Robinhood Chain";
+    throw new Error(
+      `Not enough ETH on ${chainName} to safely launch on ${PLATFORM_LABELS[platform]}. ` +
+      `Balance: ${formatEthShort(balanceCheck.balance)} ETH. Recommended minimum: ${formatEthShort(balanceCheck.required)} ETH ` +
+      `(includes a safety margin above the ~${formatEthShort(tx.value + balanceCheck.gasEstimate * balanceCheck.gasPrice)} ETH actually expected to be used, ` +
+      `since wallet pre-flight checks reserve against a buffered gas limit, not just the expected cost). Fund the wallet and try again.`
+    );
+  }
 
   if (buildOnly) {
     console.log(JSON.stringify({
