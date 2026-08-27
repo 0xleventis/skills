@@ -7,12 +7,12 @@
   "demo": {
     "title": "bruno-launch-quickstart.sh",
     "language": "bash",
-    "code": "cd scripts && npm install\n\n# BANKR_API_KEY is read from your existing `bankr login` session\nnode launch.mjs --platform o1exchange --name \"Popo\" --symbol POPO --description \"the frog\"\n\n# pools.fun and Pons need a free Pinata key to host the image/metadata\nexport PINATA_JWT=eyJ...\nnode launch.mjs --platform poolsfun --name \"Popo\" --symbol POPO --image ./logo.png"
+    "code": "cd scripts && npm install\n\n# Step 1: build only — no BANKR_API_KEY needed, prints tx JSON, submits nothing\nnode launch.mjs --platform o1exchange --name \"Popo\" --symbol POPO --build-only --wallet-address 0xYourAddress\n\n# Step 2: submit the printed {to,data,value,chainId} yourself (bankrbot's native onchain tools)\n\n# Step 3: decode the result once you have a tx hash\nnode decode-result.mjs --platform o1exchange --name \"Popo\" --symbol POPO --tx-hash 0x...\n\n# pools.fun and Pons need a free Pinata key to host the image/metadata (both steps)\nexport PINATA_JWT=eyJ..."
   },
   "setup": [
     "Install: `install the bruno skill from https://github.com/BankrBot/skills/tree/main/bruno`",
     "Install the one dependency: `cd scripts && npm install` (just viem)",
-    "Make sure `bankr login` has already been run (BANKR_API_KEY is read from that session)",
+    "No BANKR_API_KEY needed — launch.mjs --build-only only builds the transaction; bankrbot submits it with its own native onchain tools",
     "For pools.fun or Pons only: export PINATA_JWT (free key at https://app.pinata.cloud/developers/api-keys)",
     "Source: https://gitlab.com/leventis0x/bruno-skill (mirrored here under scripts/)"
   ],

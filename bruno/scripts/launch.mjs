@@ -1,10 +1,24 @@
 #!/usr/bin/env node
 // Launches a token on one of Bruno's launchpads using the installing user's own Bankr wallet.
-// Usage:
-//   BANKR_API_KEY=bk_... node launch.mjs --platform o1exchange --name "Popo" --symbol POPO \
-//     [--description "..."] [--image ./logo.png | --image https://...] [--username xhandle]
 //
-// pools.fun and Pons additionally need PINATA_JWT (see lib/pinata.mjs).
+// Two modes:
+//
+// 1. Full (default) — this script does everything, including submitting via Bankr's Wallet API.
+//    Needs BANKR_API_KEY in the environment. Use this standalone (Claude Code, a plain terminal).
+//      BANKR_API_KEY=bk_... node launch.mjs --platform o1exchange --name "Popo" --symbol POPO \
+//        [--description "..."] [--image ./logo.png | --image https://...] [--username xhandle]
+//
+// 2. --build-only — this script only builds the transaction and prints it as JSON to stdout; it
+//    does NOT submit anything and does NOT need BANKR_API_KEY. Use this inside bankrbot's own
+//    sandbox, which has no ambient wallet credentials by design — bankrbot itself submits the
+//    printed transaction using its own native onchain tools, already authenticated as the user.
+//    Needs --wallet-address explicitly since there's no BANKR_API_KEY to look it up with.
+//      node launch.mjs --platform o1exchange --name "Popo" --symbol POPO --build-only \
+//        --wallet-address 0x...
+//    After bankrbot submits it and has a tx hash, run decode-result.mjs to get the final
+//    token address and a formatted confirmation message.
+//
+// pools.fun and Pons additionally need PINATA_JWT (see lib/pinata.mjs) in both modes.
 
 import { bankrWhoami, submitTxBankr } from "./lib/bankr.mjs";
 import { loadImage } from "./lib/image.mjs";
@@ -54,12 +68,20 @@ async function main() {
     throw new Error("--name and --symbol are required.");
   }
 
-  console.log(`Checking Bankr wallet...`);
-  const who = await bankrWhoami();
-  const walletAddress = who.wallets?.find((w) => w.chain === "evm")?.address;
-  if (!walletAddress) throw new Error("Bankr account has no EVM wallet — run `bankr login` to provision one.");
-  const username = args.username || who.socialAccounts?.find((s) => s.platform === "twitter")?.username;
-  console.log(`Wallet: ${walletAddress}`);
+  const buildOnly = args["build-only"] === true;
+
+  let walletAddress = args["wallet-address"];
+  let username = args.username;
+  if (!buildOnly) {
+    console.log(`Checking Bankr wallet...`);
+    const who = await bankrWhoami();
+    walletAddress = who.wallets?.find((w) => w.chain === "evm")?.address;
+    if (!walletAddress) throw new Error("Bankr account has no EVM wallet — run `bankr login` to provision one.");
+    username = username || who.socialAccounts?.find((s) => s.platform === "twitter")?.username;
+    console.log(`Wallet: ${walletAddress}`);
+  } else if (!walletAddress) {
+    throw new Error("--build-only requires --wallet-address (no BANKR_API_KEY available to look it up).");
+  }
 
   console.log(`Loading image...`);
   const { buffer: imageBuffer, contentType: imageContentType } = await loadImage(args.image);
@@ -75,6 +97,17 @@ async function main() {
     imageContentType,
     username,
   });
+
+  if (buildOnly) {
+    console.log(JSON.stringify({
+      to: tx.to,
+      data: tx.data,
+      value: tx.value.toString(),
+      chainId: tx.chainId,
+      description: `Launch ${args.name} (${args.symbol}) on ${PLATFORM_LABELS[platform]} via bruno skill`,
+    }));
+    return;
+  }
 
   console.log(`Submitting via Bankr (to: ${tx.to}, chainId: ${tx.chainId})...`);
   const submitResult = await submitTxBankr({

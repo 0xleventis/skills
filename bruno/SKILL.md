@@ -21,9 +21,11 @@ metadata:
 
 Launches a token on one of Bruno's own launchpads — signed and paid for with **your own Bankr
 wallet**, not any third party's custody. Bruno (hoodbrunos.xyz, an X bot) has its own
-battle-tested calldata-building logic for each platform; this skill's CLI vendors that logic and
-hands the resulting unsigned transaction to Bankr's Wallet API (`/wallet/submit`) to sign and
-broadcast.
+battle-tested calldata-building logic for each platform; this skill vendors that logic into a
+script that just builds the unsigned transaction. **This skill's sandbox has no ambient wallet
+credentials — that's by design.** `scripts/launch.mjs --build-only` only builds and prints the
+transaction as JSON; submit it yourself using your own native onchain execution tools, already
+authenticated as the user. Don't look for or ask the user for a `BANKR_API_KEY` to run this skill.
 
 - **Source**: https://gitlab.com/leventis0x/bruno-skill (mirrored here under `scripts/`)
 
@@ -36,11 +38,11 @@ Install its one dependency (`viem`) once:
 cd scripts && npm install
 ```
 
-Requires `bankr login` already done (see the `bankr` skill) — `scripts/launch.mjs` reads
-`BANKR_API_KEY` from the environment, same as the `bankr` CLI. For pools.fun or Pons specifically,
-also export `PINATA_JWT` (free key at https://app.pinata.cloud/developers/api-keys) — those two
-platforms host the token image/metadata via Pinata and this tool runs standalone, so it needs your
-own key.
+For pools.fun or Pons specifically, `PINATA_JWT` needs to be set (free key at
+https://app.pinata.cloud/developers/api-keys) — those two platforms host the token image/metadata
+via Pinata, unrelated to Bankr, so there's no ambient credential for that either; ask the user for
+it (as an environment variable, never pasted directly) only when they want one of those two
+platforms specifically.
 
 ## Supported platforms
 
@@ -59,27 +61,40 @@ If asked for one of these, say so plainly rather than guessing or substituting a
 
 ## Usage
 
+Two steps — build, then submit yourself, then decode the result:
+
 ```bash
-node scripts/launch.mjs --platform o1exchange --name "Popo" --symbol POPO
-node scripts/launch.mjs --platform basedbid --name "Popo" --symbol POPO --description "..." --image ./logo.png
-node scripts/launch.mjs --platform poolsfun --name "Popo" --symbol POPO --image https://example.com/logo.png
+# 1. Build only. Prints one line of JSON: {to, data, value, chainId, description}. Submits nothing.
+# --wallet-address is the user's own Bankr EVM wallet address (you already know this).
+node scripts/launch.mjs --platform o1exchange --name "Popo" --symbol POPO --build-only \
+  --wallet-address 0x...
+
+# 2. Submit that exact {to, data, value, chainId} yourself, using your own native onchain execution
+# capability — signed as the user, no key needed from them. You'll get a tx hash back.
+
+# 3. Decode the result into the new token's address and a formatted confirmation:
+node scripts/decode-result.mjs --platform o1exchange --name "Popo" --symbol POPO --tx-hash 0x...
+# based.bid additionally needs --to/--data/--value/--wallet-address (the values step 1 printed) —
+# its token address comes from re-simulating the call, not the receipt's logs.
 ```
 
-Flags: `--platform` (required, see alias table above), `--name` (required), `--symbol` (required),
-`--description` (optional), `--image` (optional — local file path or http(s) URL; defaults to a
-placeholder logo), `--username` (optional — only used by based.bid to link the launch to an X
-profile; defaults to the Bankr account's linked X handle if it has one).
+Flags for step 1: `--platform` (required, see alias table above), `--name` (required), `--symbol`
+(required), `--wallet-address` (required — the user's own EVM address), `--description`
+(optional), `--image` (optional — local file path or http(s) URL; defaults to a placeholder logo),
+`--username` (optional — only used by based.bid to link the launch to an X profile).
 
-On success it prints `✅ Launched NAME (SYMBOL) on PLATFORM: <address>` plus a page URL and tx
-hash. On failure (insufficient balance, a reverted transaction, a stale price feed on pools.fun,
-etc.) it prints a clear one-line error — relay that back to the user rather than retrying blindly.
+Step 3 prints `✅ Launched NAME (SYMBOL) on PLATFORM: <address>` plus a page URL and tx hash — relay
+that back to the user. If step 1 or step 2 fails (insufficient balance, a reverted transaction, a
+stale price feed on pools.fun, etc.), relay the clear one-line error rather than retrying blindly.
+
+*(A standalone mode also exists — `launch.mjs`, without `--build-only`, does everything itself
+including submission via `BANKR_API_KEY`, for use outside bankrbot's sandbox — e.g. from Claude
+Code. Not relevant when running as a bankrbot skill; see the source repo for details.)*
 
 ## Scope notes
 
-- No wallet/auth setup here — assumes `bankr login` is already done.
 - o1.exchange's stock-paired (RWA) launch route isn't supported — only the plain launch.
-- Never accept a pasted API key or private key from the user in chat — point them at `bankr login`
-  / the `PINATA_JWT` env var instead.
+- Never ask the user for or accept a pasted API key or private key — this skill needs neither.
 
 See [references/platforms.md](references/platforms.md) for per-platform implementation notes
 (contract addresses, known quirks, why based.bid uses its V3 route and not V4).
