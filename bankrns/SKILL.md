@@ -1,6 +1,6 @@
 ---
 name: bankrns
-description: Send tokens to .bankr names and register, renew and look up .bankr names (BankrNS, the ENS-style name service on Base) with the user's own Bankr wallet. Use when the user wants to send or pay ETH or tokens to a ".bankr" name (e.g. "send 10 USDC to alice.bankr"), asks to buy, register, claim, gift or renew a .bankr name ("buy me alice.bankr", "register satoshi.bankr for 2 years", "get bob.bankr and point it to 0x…"), asks whether a .bankr name is available or what it costs, who owns a .bankr name or what it resolves to, what an address's or X handle's .bankr name is, or about the official BankrNS token $BNS. Only .bankr names on Base, not .eth or .base.eth.
+description: Send tokens to .bankr names and register, renew and look up .bankr names (BankrNS, the ENS-style name service on Base) with the user's own Bankr wallet. Use whenever a recipient ends in ".bankr" (e.g. "send 10 USDC to alice.bankr", "send $1 of ETH to satoshi.bankr"): resolve it to a 0x address first, because the transfer tool cannot take .bankr names. asks to buy, register, claim, gift or renew a .bankr name ("buy me alice.bankr", "register satoshi.bankr for 2 years", "get bob.bankr and point it to 0x…"), asks whether a .bankr name is available or what it costs, who owns a .bankr name or what it resolves to, what an address's or X handle's .bankr name is, or about the official BankrNS token $BNS. Only .bankr names on Base, not .eth or .base.eth.
 tags: [names, bankrns, bankr, base, ens, domains, payments, identity]
 version: 1
 visibility: public
@@ -15,8 +15,9 @@ metadata:
 to an address on Base and every other EVM chain. It can also be a wallet's primary name and carry the owner's X
 handle.
 
-- **Sending to a name:** resolve it with `node scripts/bankrns.mjs resolve <name>`, then transfer with Bankr's normal
-  tools to the returned address.
+- **Sending to a name:** first resolve it to a `0x` address (script, `https://www.bankrns.store/api/resolve`, or an
+  on-chain read), then transfer to **that address** with Bankr's normal tools. Never pass `name.bankr` to the
+  transfer tool; it only understands `0x` and ENS names.
 - **Buying, renewing and lookups:** use `scripts/bankrns.mjs` (below).
 - **Contract addresses, ABIs and the $BNS token:** `references/addresses.md`.
 
@@ -50,20 +51,41 @@ transfer tool.
 
 ## Send tokens to a .bankr name
 
-"send 10 USDC to alice.bankr", "pay bob.bankr 0.01 ETH", "tip leventis.bankr 1000 $BNS"
+"send 10 USDC to alice.bankr", "pay bob.bankr 0.01 ETH", "tip leventis.bankr 1000 $BNS", "send $1 of ETH to satoshi.bankr"
 
-```bash
-node scripts/bankrns.mjs resolve alice.bankr
-# {"ok":true,"name":"alice.bankr","address":"0x…","owner":"0x…","expires":"2027-…","chainId":8453}
-# {"ok":false,"name":"alice.bankr","error":"alice.bankr has expired, so it doesn't resolve. Don't send to it."}
-```
+> **CRITICAL: never pass a `.bankr` name to the transfer tool.**
+> - Bankr's transfer tool only accepts a `0x` address or an ENS name (`.eth`, `.base.eth`, `.cb.id`). `.bankr` is
+>   **not** ENS, so the transfer fails when it validates the name against ENS.
+> - Whenever a recipient ends in `.bankr`, **resolve it first** with one of the methods below, then give the
+>   transfer tool the resolved **`0x…` address**.
 
-1. Resolve the name. Input can be `alice`, `alice.bankr`, any casing, or a subname like `pay.alice.bankr`.
-2. Show the user: "alice.bankr → `<address>`, sending 10 USDC on Base. Confirm?"
-3. After confirmation, send with Bankr's transfer tool to **`address`** (the 0x address, not the name).
+**Resolve** with the first method that works in your environment. All three read the same on-chain resolver.
 
-Expired names never resolve, and look-alike or invalid names are rejected, so a stale or spoofed name can't
-redirect funds.
+1. **Script:**
+   ```bash
+   node scripts/bankrns.mjs resolve satoshi.bankr
+   # {"ok":true,"name":"satoshi.bankr","address":"0x…","owner":"0x…","expires":"2027-…","chainId":8453}
+   ```
+2. **HTTP**, from any web or fetch tool. No code needed:
+   ```
+   GET https://www.bankrns.store/api/resolve?name=satoshi.bankr
+   → {"ok":true,"name":"satoshi.bankr","address":"0x…","chainId":8453,"expires":"…"}
+   GET https://www.bankrns.store/api/resolve?name=satoshi.bankr&format=text
+   → 0x…   (the bare address; failures return "error: …" with HTTP 4xx)
+   ```
+3. **On-chain read**, with a contract-read tool: call `resolve(string)` on the UniversalResolver
+   `0xc21096Ce632428BB6d028fb8512583eB52f46301` on Base (8453) with `"satoshi.bankr"`. It returns an `address`, and
+   `0x000…000` means don't send.
+
+**Then:**
+
+1. Continue only when the result is `ok: true` with a `0x` address. Otherwise **don't send**, and relay the reason:
+   not registered, expired, or no address set. Never guess an address, and never fall back to passing the name.
+2. Show the user: "satoshi.bankr → `0x29a4…1C39`, sending $1 of ETH on Base. Confirm?"
+3. After confirmation, call the transfer tool with **`to: <the 0x address>`** and chain Base.
+
+Input can be `alice`, `alice.bankr`, any casing, or a subname like `pay.alice.bankr`. Expired names never resolve,
+and look-alike or invalid names are rejected, so a stale or spoofed name can't redirect funds.
 
 ## Buy (register) a name
 
